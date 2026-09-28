@@ -1,0 +1,15 @@
+{
+  "name": "@relaypay/evaluation",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/run.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "evaluate": "node dist/run.js"
+  },
+  "dependencies": {
+    "@relaypay/server": "*",
+    "@relaypay/store": "*"
+  }
+}

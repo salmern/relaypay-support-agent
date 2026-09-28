@@ -1,0 +1,268 @@
+/* RelayPay brand: professional, calm, minimal, trustworthy.
+   Palette per assets/brand-direction.md: deep blue primary, teal accent,
+   off-white background. No gradients, no emojis, no decorative fonts. */
+
+:root {
+  --blue: #14375f;
+  --blue-dark: #0d2742;
+  --teal: #1f7a8c;
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --border: #dfe3e8;
+  --text: #1c2430;
+  --text-muted: #5c6672;
+  --error: #a13a3a;
+  --radius: 10px;
+  font-family: Inter, "System UI", -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.shell {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 24px 16px 48px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-height: 100vh;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.brand-mark {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  background: var(--blue);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: 20px;
+}
+
+.brand-name {
+  font-weight: 600;
+  color: var(--blue-dark);
+}
+
+.brand-sub {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.link-button {
+  background: none;
+  border: none;
+  color: var(--teal);
+  font: inherit;
+  cursor: pointer;
+  padding: 6px 8px;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  flex: 1;
+}
+
+.status-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--border);
+}
+
+.status-dot.on { background: var(--teal); }
+.status-dot.listening { background: var(--teal); animation: pulse 1.6s ease-in-out infinite; }
+.status-dot.speaking { background: var(--blue); animation: pulse 1.2s ease-in-out infinite; }
+.status-dot.connecting { background: #c9a53d; animation: pulse 1.2s ease-in-out infinite; }
+.status-dot.error { background: var(--error); }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+.status-text {
+  font-weight: 500;
+}
+
+.badge {
+  font-size: 12px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  background: var(--bg);
+}
+
+.badge-escalated {
+  border-color: #c9a53d;
+  color: #7a6220;
+  background: #faf5e6;
+}
+
+.call-area {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 26px 0;
+}
+
+.call-button {
+  font: inherit;
+  font-weight: 600;
+  color: #fff;
+  background: var(--teal);
+  border: none;
+  border-radius: 999px;
+  padding: 14px 36px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.call-button:hover { background: #17606f; }
+.call-button.end { background: var(--blue-dark); }
+.call-button:disabled { opacity: 0.6; cursor: default; }
+
+.transcript {
+  min-height: 220px;
+  max-height: 380px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 8px 2px;
+}
+
+.bubble {
+  max-width: 85%;
+  padding: 10px 14px;
+  border-radius: 12px;
+  font-size: 15px;
+  white-space: pre-wrap;
+}
+
+.bubble.user {
+  align-self: flex-end;
+  background: var(--blue);
+  color: #fff;
+  border-bottom-right-radius: 4px;
+}
+
+.bubble.assistant {
+  align-self: flex-start;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-bottom-left-radius: 4px;
+}
+
+.bubble.pending { color: var(--text-muted); }
+
+.error-box {
+  border: 1px solid #dcb2b2;
+  background: #faf1f1;
+  color: var(--error);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  font-size: 14px;
+}
+
+.hint {
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.text-controls {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.text-controls input {
+  flex: 1;
+  min-width: 220px;
+  font: inherit;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.text-controls input:focus {
+  outline: 2px solid var(--teal);
+  outline-offset: -1px;
+}
+
+button {
+  font: inherit;
+  padding: 10px 16px;
+  border-radius: 8px;
+  border: 1px solid var(--teal);
+  background: var(--teal);
+  color: #fff;
+  cursor: pointer;
+}
+
+button:disabled { opacity: 0.55; cursor: default; }
+
+button.secondary {
+  background: transparent;
+  color: var(--teal);
+}
+
+.debug-panel {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px;
+  font-size: 13px;
+  white-space: pre-wrap;
+  color: var(--text);
+}
+
+.footer {
+  color: var(--text-muted);
+  font-size: 12px;
+  text-align: center;
+}
+
+@media (max-width: 560px) {
+  .card { padding: 16px; }
+  .bubble { max-width: 95%; }
+}

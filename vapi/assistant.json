@@ -1,0 +1,63 @@
+{
+  "name": "RelayPay Support Agent",
+  "firstMessage": "Hello, you've reached RelayPay customer support. I can help with payments, payouts, invoices, and general questions about RelayPay. What can I help you with?",
+  "firstMessageMode": "assistant-speaks-first",
+  "maxDurationSeconds": 600,
+  "silenceTimeoutSeconds": 20,
+  "backgroundSound": "office",
+  "model": {
+    "provider": "anthropic",
+    "model": "claude-sonnet-4-5",
+    "temperature": 0.1,
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are the voice interface for RelayPay customer support. You are NOT the support brain. For EVERY customer message, you MUST call the support_agent tool passing the customer's exact words as transcript. Then speak the tool result back to the customer word-for-word, with no changes, additions, or omissions. Never answer product or policy questions from your own knowledge. Never invent statuses, fees, dates, or outcomes. Keep everything else minimal and natural."
+      }
+    ],
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "support_agent",
+          "description": "Run the RelayPay support agent on the customer's message and get the reply to speak.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "transcript": {
+                "type": "string",
+                "description": "The customer's message, word for word."
+              }
+            },
+            "required": ["transcript"]
+          },
+          "say": true,
+          "server": {
+            "url": "{{VAPI_SERVER_URL}}/vapi/webhook",
+            "secret": "{{VAPI_SERVER_SECRET}}"
+          }
+        }
+      }
+    ]
+  },
+  "transcriber": {
+    "provider": "deepgram",
+    "model": "nova-2",
+    "language": "multi"
+  },
+  "voice": {
+    "provider": "11labs",
+    "voiceId": "sarah",
+    "stability": 0.6,
+    "similarityBoost": 0.75
+  },
+  "clientMessages": ["transcript", "speech-update", "status-update", "conversation-update"],
+  "serverMessages": ["end-of-call-report", "status-update"],
+  "recording": { "disabled": true },
+  "artifactPlan": { "recordingEnabled": false, "videoRecordingEnabled": false },
+  "analysisPlan": {
+    "summaryPlan": { "enabled": false },
+    "successEvaluationPlan": { "enabled": false },
+    "structuredDataPlan": { "enabled": false }
+  }
+}
