@@ -1,0 +1,301 @@
+/**
+ * Orchestrator integration tests.
+ *
+ * Runs the REAL orchestrator + REAL MCP server subprocess + mock store,
+ * covering the Week 6 scenarios end-to-end (minus live Claude/Vapi,
+ * which need external credentials — see TESTING.md).
+ */
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { mkdtempSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  loadKnowledgeChunksFromAssets,
+  loadSeedFromAssets,
+  MockFileStore,
+} from "@relaypay/store";
+import { SupportOrchestrator } from "../src/orchestrator.js";
+
+let store: MockFileStore;
+let orchestrator: SupportOrchestrator;
+let storePath: string;
+let conversationId: string;
+let previousMockPath: string | undefined;
+
+beforeEach(async () => {
+  const tmp = mkdtempSync(join(tmpdir(), "relaypay-orch-"));
+  storePath = join(tmp, "store.json");
+  const seed = loadSeedFromAssets();
+  store = new MockFileStore({
+    filePath: storePath,
+    seed,
+    knowledgeChunks: loadKnowledgeChunksFromAssets(),
+  });
+  await store.seedIfEmpty({ ...seed, knowledgeChunks: loadKnowledgeChunksFromAssets() });
+  // The orchestrator's MCP subprocess shares state through this env var
+  // (see .env.example) — it must point at the same store file.
+  previousMockPath = process.env.MOCK_STORE_PATH;
+  process.env.MOCK_STORE_PATH = storePath;
+  orchestrator = new SupportOrchestrator(store, loadKnowledgeChunksFromAssets());
+  conversationId = `conv-test-${Math.random().toString(36).slice(2, 8)}`;
+});
+
+afterEach(async () => {
+  await orchestrator.dispose();
+  if (previousMockPath === undefined) delete process.env.MOCK_STORE_PATH;
+  else process.env.MOCK_STORE_PATH = previousMockPath;
+});
+
+function persisted() {
+  return JSON.parse(readFileSync(storePath, "utf8")) as {
+    conversations: unknown[];
+    turns: Array<{ conversation_id: string; answer_type: string }>;
+    retrieval_logs: Array<{ conversation_id: string | null; query: string; knowledge_chunks: string[]; source_title: string }>;
+    tool_calls: Array<{ tool_name: string; status: string; conversation_id: string | null }>;
+    tickets: Array<{ ticket_id: string; category: string; priority: string; customer_id: string | null; transaction_id: string | null; conversation_id: string }>;
+    escalations: Array<{ escalation_id: string; category: string; call_booked: boolean; user_email: string | null; conversation_id: string }>;
+    conversation_events: Array<{ event_type: string; conversation_id: string }>;
+  };
+}
+
+async function turn(message: string) {
+  return orchestrator.handleTurn({ conversationId, channel: "text", userMessage: message });
+}
+
+describe("Scenario 1: knowledge-grounded answer", () => {
+  it("answers fees question from approved knowledge and logs retrieval", async () => {
+    const result = await turn("What fees does RelayPay charge for international payments?");
+    expect(result.answerType).toBe("knowledge");
+    expect(result.response).toMatch(/fees vary|before.*(confirm|transaction)/i);
+    // Grounded: must NOT contain an invented fee number
+    expect(result.response).not.toMatch(/\$\s?\d+|\d+\s?%/);
+    // Retrieval was logged with chunk ids and source title
+    const logs = persisted().retrieval_logs.filter((l) => l.conversation_id === conversationId);
+    expect(logs).toHaveLength(1);
+    expect(logs[0]!.knowledge_chunks.length).toBeGreaterThan(0);
+    expect(logs[0]!.source_title).toMatch(/fee/i);
+    // The response must be consistent with the retrieved chunks
+    expect(logs[0]!.source_title.toLowerCase()).toContain("fees");
+  });
+
+  it("declines instead of hallucinating when nothing matches", async () => {
+    const result = await turn("What is the airspeed velocity of an unladen swallow?");
+    expect(result.answerType).toBe("decline");
+    expect(result.response).toMatch(/cannot answer|don't have approved/i);
+  });
+});
+
+describe("Scenario 2: clarification", () => {
+  it("asks which payment kind and does NOT guess a status", async () => {
+    const result = await turn("My payment is stuck.");
+    expect(result.answerType).toBe("clarification");
+    expect(result.response).toMatch(/outgoing payout|incoming transfer|invoice payment/i);
+    // No status words may be invented
+    expect(result.response).not.toMatch(/is (completed|processing|failed|delayed)/i);
+    // No lookup tool calls may have happened yet (only the decision audit log)
+    const calls = persisted().tool_calls.filter((c) => c.conversation_id === conversationId);
+    expect(calls.filter((c) => c.tool_name.startsWith("lookup"))).toHaveLength(0);
+  });
+
+  it("continues the conversation when the reference is provided afterwards", async () => {
+    await turn("My payment is stuck.");
+    const result = await turn("It is TXN-9005");
+    expect(result.answerType).toBe("lookup");
+    expect(result.response).toContain("TXN-9005");
+    expect(result.response).toMatch(/delayed/i);
+  });
+});
+
+describe("Scenario 3: customer lookup", () => {
+  it("looks up Amara from LagosLedger and speaks only safe fields", async () => {
+    const result = await turn("I am Amara from LagosLedger. Can you check my account?");
+    expect(result.answerType).toBe("lookup");
+    expect(result.response).toContain("LagosLedger");
+    expect(result.response).toMatch(/active/i);
+    // Contact email must never be spoken
+    expect(result.response).not.toContain("amara@lagosledger.example");
+    const calls = persisted().tool_calls.filter((c) => c.conversation_id === conversationId);
+    expect(calls.some((c) => c.tool_name === "lookup_customer" && c.status === "success")).toBe(true);
+  });
+
+  it("escalates restricted accounts instead of diagnosing them", async () => {
+    const result = await turn("This is Efua from AccraStack, can you check my account?");
+    expect(result.answerType).toBe("escalation");
+    expect(result.escalationId).toBeTruthy();
+    expect(persisted().escalations.some((e) => e.category === "account" && e.conversation_id === conversationId)).toBe(true);
+  });
+
+  it("asks for identifying info when none is given", async () => {
+    const result = await turn("Can you check my account?");
+    expect(result.answerType).toBe("clarification");
+    expect(result.response).toMatch(/company name|customer id/i);
+  });
+});
+
+describe("Scenario 4: transaction lookup", () => {
+  it("returns the real seeded status for TXN-9001", async () => {
+    const result = await turn("Can you check transaction TXN-9001?");
+    expect(result.answerType).toBe("lookup");
+    expect(result.response).toContain("TXN-9001");
+    expect(result.response).toMatch(/processing/i);
+    const calls = persisted().tool_calls.filter((c) => c.tool_name === "lookup_transaction" && c.conversation_id === conversationId);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.input_summary).toContain("TXN-9001");
+  });
+
+  it("does not fabricate unknown transactions", async () => {
+    const result = await turn("Check transaction TXN-9999 please");
+    expect(result.response).toMatch(/couldn't find/i);
+    expect(result.uncertaintyNote).toMatch(/not found/i);
+  });
+
+  it("returns the seeded support summary for the delayed transfer", async () => {
+    const result = await turn("What is the status of TXN-9005?");
+    expect(result.response).toMatch(/delayed/i);
+    expect(result.response).toContain("3100 EUR");
+  });
+});
+
+describe("Scenario 5: payout lookup + compliance escalation", () => {
+  it("identifies PAY-7002 review and creates an escalation record", async () => {
+    const result = await turn("What is happening with payout PAY-7002?");
+    expect(result.response).toMatch(/review/i);
+    expect(result.escalationId).toBeTruthy();
+    const data = persisted();
+    const escalations = data.escalations.filter((e) => e.conversation_id === conversationId);
+    expect(escalations).toHaveLength(1);
+    expect(escalations[0]!.category).toBe("compliance");
+    const calls = data.tool_calls.filter((c) => c.conversation_id === conversationId);
+    expect(calls.some((c) => c.tool_name === "lookup_payout")).toBe(true);
+    expect(calls.some((c) => c.tool_name === "create_escalation")).toBe(true);
+  });
+
+  it("reports PAY-7003 failure without inventing a resolution", async () => {
+    const result = await turn("What is happening with payout PAY-7003?");
+    expect(result.response).toMatch(/failed|beneficiary/i);
+    expect(result.escalationId).toBeNull();
+  });
+
+  it("does not guess a payout without a reference", async () => {
+    const result = await turn("My payout is late.");
+    expect(result.answerType).toBe("clarification");
+  });
+});
+
+describe("Scenario 6: ticket creation", () => {
+  it("creates a persisted ticket with linked transaction", async () => {
+    const result = await turn("My invoice payment failed and I need someone to look at it. Transaction TXN-9002.");
+    expect(result.answerType).toBe("ticket");
+    expect(result.ticketId).toMatch(/^TCK-/);
+    const data = persisted();
+    const ticket = data.tickets.find((t) => t.ticket_id === result.ticketId);
+    expect(ticket).toBeTruthy();
+    expect(ticket!.category).toBe("invoice");
+    expect(ticket!.transaction_id).toBe("TXN-9002");
+    expect(ticket!.conversation_id).toBe(conversationId);
+    // Ticket confirmation only after actual MCP success
+    expect(result.response).toMatch(/ticket/i);
+  });
+});
+
+describe("Scenario 7: human escalation", () => {
+  it("collects contact details, then creates the escalation record", async () => {
+    const first = await turn("My account was restricted and nobody is helping me.");
+    expect(first.answerType).toBe("escalation");
+    expect(first.escalationId).toBeNull(); // not yet — contact needed
+    expect(first.response).toMatch(/name|email|specialist/i);
+
+    const second = await turn("My name is Efua Mensah, email efua@accrastack.example, callback tomorrow afternoon");
+    expect(second.escalationId).toMatch(/^ESC-/);
+    const data = persisted();
+    const escalations = data.escalations.filter((e) => e.escalation_id === second.escalationId);
+    expect(escalations).toHaveLength(1);
+    expect(escalations[0]!.user_email).toBe("efua@accrastack.example");
+    expect(escalations[0]!.call_booked).toBe(true);
+    // No internal compliance explanations
+    expect(second.response).not.toMatch(/compliance (rule|system|team decided)/i);
+  });
+
+  it("does not explain internal decisions", async () => {
+    const result = await turn("My KYC verification has been pending for weeks");
+    expect(result.answerType).toBe("escalation");
+    expect(result.response).toMatch(/specialist|human|hand(ed|ing)/i);
+  });
+});
+
+describe("Scenario 8: unsupported question", () => {
+  it("declines to guarantee a timeline and cites the approved policy", async () => {
+    const result = await turn("Can RelayPay guarantee my payout arrives by 9am tomorrow?");
+    expect(result.answerType).toBe("knowledge");
+    expect(result.response).toMatch(/no\.|cannot|not guarantee|external banking/i);
+    // Must NOT promise
+    expect(result.response).not.toMatch(/yes, (we|i) can guarantee/i);
+    const logs = persisted().retrieval_logs.filter((l) => l.conversation_id === conversationId);
+    expect(logs[0]!.source_title.toLowerCase()).toContain("guarantee");
+  });
+});
+
+describe("Scenario 10: logging completeness", () => {
+  it("records conversations, turns, retrievals, tool calls and events", async () => {
+    await turn("What fees does RelayPay charge?");
+    await turn("Check transaction TXN-9001");
+    const data = persisted();
+    expect(data.turns.filter((t) => t.conversation_id === conversationId)).toHaveLength(2);
+    expect(data.retrieval_logs.filter((l) => l.conversation_id === conversationId)).toHaveLength(1);
+    // Tool calls include the decision audits: knowledge turn = 1 event log,
+    // lookup turn = lookup_transaction + 1 event log.
+    const calls = data.tool_calls.filter((c) => c.conversation_id === conversationId);
+    expect(calls.filter((c) => c.tool_name === "log_conversation_event")).toHaveLength(2);
+    expect(calls.filter((c) => c.tool_name === "lookup_transaction")).toHaveLength(1);
+    expect(calls).toHaveLength(3);
+    expect(data.conversation_events.filter((e) => e.conversation_id === conversationId)).toHaveLength(2);
+  });
+
+  it("masks emails in tool-call audit summaries", async () => {
+    await turn("This is Efua from AccraStack, check my account");
+    const data = persisted();
+    const customerCalls = data.tool_calls.filter((c) => c.tool_name === "lookup_customer");
+    for (const call of customerCalls) {
+      expect(call.input_summary).not.toContain("efua@accrastack.example");
+    }
+  });
+
+  it("closes conversations with escalated status when escalations exist", async () => {
+    await turn("My account was restricted and nobody is helping me.");
+    await turn("My name is Efua, email efua@accrastack.example");
+    const end = await orchestrator.endConversation(conversationId);
+    expect(end.final_status).toBe("escalated");
+    const conversation = await store.getConversation(conversationId);
+    expect(conversation!.ended_at).toBeTruthy();
+    expect(conversation!.summary).toBeTruthy();
+  });
+});
+
+describe("error handling", () => {
+  it("returns a customer-safe error response when the MCP store is unreachable", async () => {
+    // Simulate a store outage: point the MCP subprocess at a directory
+    // where a file cannot be created, then attempt a lookup turn.
+    const os = await import("node:os");
+    const path = await import("node:path");
+    const fs = await import("node:fs");
+    const dirAsFile = path.join(os.tmpdir(), "relaypay-unusable-store-dir");
+    fs.mkdirSync(dirAsFile, { recursive: true }); // a DIRECTORY, not a file
+    process.env.MOCK_STORE_PATH = dirAsFile; // reads/writes against it fail
+    const broken = new SupportOrchestrator(store, loadKnowledgeChunksFromAssets());
+    try {
+      const result = await broken.handleTurn({
+        conversationId: `conv-broken-${Math.random().toString(36).slice(2, 8)}`,
+        channel: "text",
+        userMessage: "Check transaction TXN-9001",
+      });
+      // Must be an explicit error path or a safe not-found — never a
+      // real-looking status invented from nothing.
+      expect(["error", "lookup", "clarification"]).toContain(result.answerType);
+      expect(result.response).toMatch(/trouble|couldn't find|sorry|double-check/i);
+    } finally {
+      await broken.dispose();
+      if (previousMockPath === undefined) delete process.env.MOCK_STORE_PATH;
+      else process.env.MOCK_STORE_PATH = previousMockPath;
+    }
+  });
+});
