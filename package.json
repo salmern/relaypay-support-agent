@@ -1,0 +1,35 @@
+{
+  "name": "relaypay-support-agent",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Week 6 capstone: production customer support agent for RelayPay (Vapi + Claude Agent SDK + custom MCP server + Supabase)",
+  "type": "module",
+  "workspaces": [
+    "packages/store",
+    "mcp-server",
+    "server",
+    "web",
+    "evaluation"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "npm run build -w @relaypay/store && npm run build -w @relaypay/mcp-server && npm run build -w @relaypay/server && npm run build -w @relaypay/evaluation",
+    "typecheck": "tsc --noEmit -p packages/store && tsc --noEmit -p mcp-server && tsc --noEmit -p server && tsc --noEmit -p evaluation && tsc --noEmit -p web",
+    "dev:server": "npm run build -w @relaypay/store && npm run build -w @relaypay/mcp-server && npm run dev -w @relaypay/server",
+    "dev:web": "npm run dev -w @relaypay/web",
+    "seed": "npm run build -w @relaypay/store && npm run seed -w @relaypay/server",
+    "mcp:smoke": "npm run build -w @relaypay/store && npm run build -w @relaypay/mcp-server && npm run smoke -w @relaypay/mcp-server",
+    "test": "npm run build -w @relaypay/store && npm run test -w @relaypay/server && npm run test -w @relaypay/mcp-server",
+    "evaluate": "npm run build -w @relaypay/store && npm run build -w @relaypay/mcp-server && npm run evaluate -w @relaypay/evaluation",
+    "lint": "eslint packages mcp-server server evaluation --ext .ts"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "eslint": "^9.39.0",
+    "typescript-eslint": "^8.46.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0"
+  }
+}

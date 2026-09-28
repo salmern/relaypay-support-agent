@@ -1,0 +1,20 @@
+node_modules/
+dist/
+build/
+*.tsbuildinfo
+
+# Environment — never commit real secrets
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Runtime artifacts
+*.log
+data/
+.vite/
+coverage/
+
+# OS
+.DS_Store
+Thumbs.db
