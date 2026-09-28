@@ -93,28 +93,58 @@ describe("Vapi webhook", () => {
       method: "POST",
       url: "/vapi/webhook",
       headers: { "x-vapi-secret": "wrong" },
-      payload: { message: { type: "function-call", functionCall: { name: "support_agent", parameters: { transcript: "hello" } } }, call: { id: "call-1" } },
+      payload: {
+        message: { type: "tool-calls", toolCallList: [{ id: "t1", function: { name: "support_agent", arguments: { transcript: "hello" } } }] },
+        call: { id: "call-1" },
+      },
     });
     expect(res.statusCode).toBe(401);
   });
 
-  it("answers a function-call with the agent reply to speak", async () => {
+  it("answers a tool-calls request with the agent reply to speak", async () => {
     const res = await app.inject({
       method: "POST",
       url: "/vapi/webhook",
       headers: { "x-vapi-secret": "test-secret" },
       payload: {
-        message: { type: "function-call", functionCall: { name: "support_agent", parameters: { transcript: "Can you check transaction TXN-9001?" } } },
+        message: {
+          type: "tool-calls",
+          toolCallList: [{ id: "tc-9001", function: { name: "support_agent", arguments: { transcript: "Can you check transaction TXN-9001?" } } }],
+        },
         call: { id: "call-api-test" },
       },
     });
     expect(res.statusCode).toBe(200);
-    const body = res.json() as { result: string };
-    expect(body.result).toContain("TXN-9001");
-    expect(body.result).toMatch(/processing/i);
+    const body = res.json() as { results: Array<{ toolCallId: string; result: string }> };
+    expect(body.results).toHaveLength(1);
+    expect(body.results[0]!.toolCallId).toBe("tc-9001");
+    expect(body.results[0]!.result).toContain("TXN-9001");
+    expect(body.results[0]!.result).toMatch(/processing/i);
     // The voice conversation was logged under the Vapi call id
     const conversation = await store.getConversation("call-api-test");
     expect(conversation?.channel).toBe("voice");
+  });
+
+  it("handles multiple tool calls in one request", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/vapi/webhook",
+      headers: { "x-vapi-secret": "test-secret" },
+      payload: {
+        message: {
+          type: "tool-calls",
+          toolCallList: [
+            { id: "tc-a", function: { name: "support_agent", arguments: { transcript: "What is the status of TXN-9005?" } } },
+            { id: "tc-b", function: { name: "support_agent", arguments: { transcript: "How long do payments take to process?" } } },
+          ],
+        },
+        call: { id: "call-multi" },
+      },
+    });
+    const body = res.json() as { results: Array<{ toolCallId: string; result: string }> };
+    expect(body.results).toHaveLength(2);
+    expect(body.results[0]!.toolCallId).toBe("tc-a");
+    expect(body.results[1]!.toolCallId).toBe("tc-b");
   });
 
   it("closes the conversation on end-of-call-report", async () => {
@@ -139,12 +169,12 @@ describe("Vapi webhook", () => {
       url: "/vapi/webhook",
       headers: { "x-vapi-secret": "test-secret" },
       payload: {
-        message: { type: "function-call", functionCall: { name: "support_agent", parameters: {} } },
+        message: { type: "tool-calls", toolCallList: [{ id: "tc-empty", function: { name: "support_agent", arguments: {} } }] },
         call: { id: "call-empty" },
       },
     });
-    const body = res.json() as { result: string };
-    expect(body.result).toMatch(/catch|again/i);
+    const body = res.json() as { results: Array<{ result: string }> };
+    expect(body.results[0]!.result).toMatch(/catch|again/i);
   });
 });
 

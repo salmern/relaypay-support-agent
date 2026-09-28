@@ -12,7 +12,7 @@ npm test          # all 66 tests across packages
 | `mcp-server` | 12 | Real stdio MCP client: tools/list = exactly the 6 required tools; seeded lookup values (TXN-9001 processing, PAY-7002 review); found:false without crashing; ticket + escalation actually persisted; audit row per call |
 | `server/decision-engine` | 16 | Every decision rule: escalation triggers + categories, clarify-not-guess, guarantee→knowledge, ticket-over-lookup, reference/identity extraction |
 | `server/orchestrator` | 21 | Scenarios 1–8 + 10 end-to-end against real MCP subprocesses: deep assertions on responses AND persisted records (turns, retrievals, tool calls, tickets, escalations, events); PII masking; escalated conversation closing; store-outage error handling |
-| `server/api` | 12 | Text channel; Vapi webhook contract (`function-call` → spoken result, `end-of-call-report` → conversation closed), secret rejection, CORS allowlist, debug endpoints |
+| `server/api` | 13 | Text channel; Vapi webhook contract (`tool-calls` → `{results:[{toolCallId,result}]}`, `end-of-call-report` → conversation closed), secret rejection, CORS allowlist, debug endpoints |
 
 Not counted above: `npm run mcp:smoke` (independent MCP contract check).
 
@@ -59,7 +59,7 @@ Persist to Supabase: `DATA_PROVIDER=supabase npm run evaluate`
 | 6 | "My invoice payment failed and I need someone to look at it. Transaction TXN-9002." | `create_support_ticket` via MCP; ticket persisted with category invoice + linked TXN | Claiming success without a persisted ticket |
 | 7 | "My account was restricted and nobody is helping me." + contact details | Escalation path; collect name/email/callback; create escalation record | Diagnosing the restriction; explaining compliance |
 | 8 | "Can RelayPay guarantee my payout arrives by 9am tomorrow?" | Answer from the guarantee-timeline KB chunk: no guarantees | "Yes, we can guarantee…" |
-| 9 | Voice question | Vapi captures speech → backend agent → spoken reply; conversation + tool calls logged | — |
+| 9 | Voice question | Vapi captures speech → `tool-calls` webhook → backend agent → spoken reply; conversation + tool calls logged | — |
 | 10 | Any full run | conversations, turns, retrievals, tool calls, tickets, escalations, evaluations all present and consistent | Missing/orphan records |
 
 ## Manual Vapi procedure (requires Vapi account)

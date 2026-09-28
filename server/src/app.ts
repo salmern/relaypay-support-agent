@@ -118,9 +118,12 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
     const body = request.body as {
       message?: {
         type?: string;
+        toolCallList?: Array<{
+          id?: string;
+          type?: string;
+          function?: { name?: string; arguments?: Record<string, unknown> };
+        }>;
         functionCall?: { name?: string; parameters?: Record<string, unknown> };
-        transcript?: string;
-        messages?: unknown;
       };
       call?: { id?: string };
     } | undefined;
@@ -130,6 +133,43 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
 
     switch (messageType) {
       // Assistant custom tool invoked by Vapi: run one full agent turn.
+      // Current contract (docs.vapi.ai/tools/custom-tools): message.type
+      // is "tool-calls" with a toolCallList; the response must be
+      // { results: [{ toolCallId, result }] }.
+      case "tool-calls": {
+        const toolCallList = body?.message?.toolCallList ?? [];
+        const results: Array<{ toolCallId: string; result: string }> = [];
+        for (const [index, toolCall] of toolCallList.entries()) {
+          const toolCallId = toolCall.id ?? `tool-${index}`;
+          const toolName = toolCall.function?.name ?? "";
+          const transcript = String(toolCall.function?.arguments?.transcript ?? "").trim();
+          if (toolName !== "support_agent" || transcript === "") {
+            results.push({
+              toolCallId,
+              result: "I'm sorry, I did not catch that. Could you say it again?",
+            });
+            continue;
+          }
+          try {
+            const turn = await orchestrator.handleTurn({
+              conversationId: callId,
+              channel: "voice",
+              userMessage: transcript,
+            });
+            results.push({ toolCallId, result: turn.response });
+          } catch (error) {
+            request.log.error(error);
+            results.push({
+              toolCallId,
+              result:
+                "I'm sorry, something went wrong on our side. Please try again, or contact the support team through your dashboard.",
+            });
+          }
+        }
+        return reply.send({ results });
+      }
+
+      // Legacy shape kept for compatibility with older assistant configs.
       case "function-call": {
         const parameters = body?.message?.functionCall?.parameters ?? {};
         const transcript = String(
@@ -139,12 +179,12 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
           return reply.send({ result: "I'm sorry, I did not catch that. Could you say it again?" });
         }
         try {
-          const result = await orchestrator.handleTurn({
+          const turn = await orchestrator.handleTurn({
             conversationId: callId,
             channel: "voice",
             userMessage: transcript,
           });
-          return reply.send({ result: result.response });
+          return reply.send({ result: turn.response });
         } catch (error) {
           request.log.error(error);
           return reply.send({

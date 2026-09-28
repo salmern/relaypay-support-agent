@@ -10,9 +10,13 @@ Supabase remembers; the approved knowledge base keeps every answer honest.
 ### 1. Voice layer — Vapi (`vapi/assistant.json`, `web/`)
 
 - The web app uses `@vapi-ai/web` with the **public** key and assistant ID.
-- The assistant is a *voice router*: its single tool `support_agent` POSTs
-  the customer's words to our backend (`POST /vapi/webhook`) and speaks the
-  returned `result` verbatim. STT (Deepgram) and TTS (11labs) are Vapi's.
+- The assistant is a *voice router*: its single custom tool `support_agent`
+  POSTs the customer's words to our backend (`POST /vapi/webhook`) and
+  speaks the returned result verbatim. STT (Deepgram) and TTS (11labs)
+  are Vapi's.
+- Tool-call contract (per docs.vapi.ai/tools/custom-tools): Vapi sends
+  `message.type: "tool-calls"` with a `toolCallList`; the backend answers
+  `{ results: [{ toolCallId, result }] }`.
 - `end-of-call-report` server events close the conversation record.
 - The webhook verifies a shared server secret (`x-vapi-secret`, constant-time).
 

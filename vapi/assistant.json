@@ -7,7 +7,7 @@
   "backgroundSound": "office",
   "model": {
     "provider": "anthropic",
-    "model": "claude-sonnet-4-5",
+    "model": "claude-3-7-sonnet-20250219",
     "temperature": 0.1,
     "messages": [
       {
@@ -30,12 +30,11 @@
               }
             },
             "required": ["transcript"]
-          },
-          "say": true,
-          "server": {
-            "url": "{{VAPI_SERVER_URL}}/vapi/webhook",
-            "secret": "{{VAPI_SERVER_SECRET}}"
           }
+        },
+        "server": {
+          "url": "{{VAPI_SERVER_URL}}/vapi/webhook",
+          "secret": "{{VAPI_SERVER_SECRET}}"
         }
       }
     ]
@@ -52,8 +51,7 @@
     "similarityBoost": 0.75
   },
   "clientMessages": ["transcript", "speech-update", "status-update", "conversation-update"],
-  "serverMessages": ["end-of-call-report", "status-update"],
-  "recording": { "disabled": true },
+  "serverMessages": ["end-of-call-report", "status-update", "tool-calls"],
   "artifactPlan": { "recordingEnabled": false, "videoRecordingEnabled": false },
   "analysisPlan": {
     "summaryPlan": { "enabled": false },
