@@ -23,10 +23,21 @@ describe("FAQ-question routing", () => {
     expect(result.matches[0]!.chunk.content.toLowerCase()).toContain("b2b fintech");
   });
 
-  it("does not fire for statements, paraphrases, or unanswered questions", () => {
-    expect(routeFaqQuestion(kb, "what is relaypay")).toBeNull(); // not a question mark
-    expect(routeFaqQuestion(kb, "What exactly is RelayPay?")).toBeNull(); // not word-for-word
+  it("routes spoken variants: split brand and missing question mark", () => {
+    // Speech-to-text writes the brand as two words.
+    const spoken = retrieveKnowledge(kb, "What is relay pay?");
+    expect(spoken.relevant).toBe(true);
+    expect(spoken.matches[0]!.chunk.heading.toLowerCase()).toContain("what is relaypay");
+    // Text-channel users often skip the question mark.
+    const typed = retrieveKnowledge(kb, "what is RelayPay");
+    expect(typed.relevant).toBe(true);
+    expect(typed.matches[0]!.chunk.heading.toLowerCase()).toContain("what is relaypay");
+  });
+
+  it("does not fire for paraphrases or unanswered questions", () => {
+    expect(routeFaqQuestion(kb, "What exactly is RelayPay?")).toBeNull(); // not exact
     expect(routeFaqQuestion(kb, "What is the meaning of life?")).toBeNull();
+    expect(routeFaqQuestion(kb, "tell me about relaypay")).toBeNull(); // statement
   });
 
   it("still grounds specific questions via TF-IDF, not routing", () => {

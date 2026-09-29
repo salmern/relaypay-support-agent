@@ -33,30 +33,27 @@ const RELEVANCE_THRESHOLD = 2;
  * answers ("What is RelayPay?" → "What Is RelayPay?"), routing to that
  * section deterministically is more faithful than declining.
  *
- * Guardrails:
- * - fires only when the whole query is a question ending in "?"
- * - fires only when a KB section question matches the normalized query
- *   word-for-word (no fuzzy/partial matching, no substring games)
- * - returns the section chunk with a strong score so the grounded
- *   pipeline, logging and refusal behavior are exactly as usual
+ * Matching is exact but separator-insensitive: queries and headings are
+ * reduced to lowercase alphanumeric keys, so "what is relay pay?"
+ * (speech-to-text often splits the brand into two words) and
+ * "What is RelayPay" (typed without a question mark) both route to
+ * "What Is RelayPay?". There is no fuzzy or partial matching — the
+ * WHOLE query must equal the WHOLE heading, so paraphrases and
+ * non-KB questions still fall through to scored retrieval and the
+ * grounded refusal.
  */
 export function routeFaqQuestion(
   chunks: KnowledgeChunk[],
   query: string,
 ): ScoredChunk | null {
-  const trimmed = query.trim();
-  if (!trimmed.endsWith("?")) return null;
-  const words = (s: string): string[] =>
-    s
-      .toLowerCase()
-      .replace(/[^a-z0-9\s-]/g, " ")
-      .split(/\s+/)
-      .filter(Boolean);
-  const question = words(trimmed.replace(/\?+$/, "")).join(" ");
-  if (question === "") return null;
+  // Lowercase, strip everything that is not a letter or digit: this
+  // erases spacing, punctuation and casing differences between spoken,
+  // typed and canonical question forms.
+  const key = (value: string): string => value.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const questionKey = key(query);
+  if (questionKey === "") return null;
   for (const chunk of chunks) {
-    const headingQuestion = chunk.heading.replace(/\?+$/, "");
-    if (words(headingQuestion).join(" ") === question) {
+    if (key(chunk.heading) === questionKey) {
       return { chunk, score: RELEVANCE_THRESHOLD };
     }
   }
