@@ -9,18 +9,21 @@
  *
  * Run: npm run evaluate
  */
-import "dotenv/config";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   createStore,
   loadKnowledgeChunksFromAssets,
+  loadRootDotenv,
   loadSeedFromAssets,
   MockFileStore,
   type Store,
 } from "@relaypay/store";
 import { SupportOrchestrator, type TurnResult } from "@relaypay/server/orchestrator";
+
+// Load the repo-root `.env` before anything reads process.env.
+loadRootDotenv();
 
 interface ScenarioOutcome {
   scenario: string;

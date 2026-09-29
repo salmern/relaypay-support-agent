@@ -11,8 +11,12 @@
 import {
   createStore,
   loadKnowledgeChunksFromAssets,
+  loadRootDotenv,
   loadSeedFromAssets,
 } from "@relaypay/store";
+
+// Load the repo-root `.env` before anything reads process.env.
+loadRootDotenv();
 
 async function main(): Promise<number> {
   const seed = loadSeedFromAssets();

@@ -4,13 +4,16 @@
  * for local testing; set SUPABASE_*, ANTHROPIC_API_KEY and VAPI_* for
  * the full production flow.
  */
-import "dotenv/config";
 import {
   createStore,
   loadKnowledgeChunksFromAssets,
+  loadRootDotenv,
   loadSeedFromAssets,
 } from "@relaypay/store";
 import { buildApp } from "./app.js";
+
+// Load the repo-root `.env` before anything reads process.env.
+loadRootDotenv();
 
 async function main(): Promise<void> {
   const port = Number(process.env.PORT ?? 8787);

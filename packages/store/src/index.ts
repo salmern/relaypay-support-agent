@@ -10,6 +10,7 @@ export * from "./factory.js";
 
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { config as loadDotenv } from "dotenv";
 import { parseKnowledgeBase } from "./knowledge-base.js";
 import { loadSeedData } from "./seed-data.js";
 import type { KnowledgeChunk } from "./types.js";
@@ -24,6 +25,20 @@ export function findUp(startDir: string, filename: string): string | null {
     if (parent === dir) return null;
     dir = parent;
   }
+}
+
+/**
+ * Loads `.env` from the repo root (found by walking up from the current
+ * working directory), so npm workspace scripts like `npm run seed -w
+ * @relaypay/server` (cwd = server/) still pick up the root `.env`.
+ *
+ * Real environment variables always win over `.env` values — dotenv only
+ * fills in what is missing — so production (Render dashboard env, inline
+ * `DATA_PROVIDER=supabase npm run seed`) keeps precedence.
+ */
+export function loadRootDotenv(): void {
+  const envPath = findUp(process.cwd(), ".env");
+  if (envPath) loadDotenv({ path: envPath, quiet: true });
 }
 
 /**
