@@ -8,9 +8,34 @@ import {
   MockFileStore,
   parseKnowledgeBase,
   retrieveKnowledge,
+  routeFaqQuestion,
 } from "../src/index.js";
 
 const tmp = mkdtempSync(join(tmpdir(), "relaypay-store-"));
+
+describe("FAQ-question routing", () => {
+  const kb = loadKnowledgeChunksFromAssets();
+
+  it("routes 'What is RelayPay?' to the matching FAQ section", () => {
+    const result = retrieveKnowledge(kb, "What is RelayPay?");
+    expect(result.relevant).toBe(true);
+    expect(result.matches[0]!.chunk.heading.toLowerCase()).toContain("what is relaypay");
+    expect(result.matches[0]!.chunk.content.toLowerCase()).toContain("b2b fintech");
+  });
+
+  it("does not fire for statements, paraphrases, or unanswered questions", () => {
+    expect(routeFaqQuestion(kb, "what is relaypay")).toBeNull(); // not a question mark
+    expect(routeFaqQuestion(kb, "What exactly is RelayPay?")).toBeNull(); // not word-for-word
+    expect(routeFaqQuestion(kb, "What is the meaning of life?")).toBeNull();
+  });
+
+  it("still grounds specific questions via TF-IDF, not routing", () => {
+    const result = retrieveKnowledge(kb, "What fees does RelayPay charge for international payments?");
+    expect(result.relevant).toBe(true);
+    expect(result.bestScore).toBeGreaterThan(2);
+    expect(result.matches[0]!.chunk.heading.toLowerCase()).toContain("fees");
+  });
+});
 
 describe("knowledge base parsing", () => {
   const kb = loadKnowledgeChunksFromAssets();

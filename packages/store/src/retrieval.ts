@@ -22,6 +22,47 @@ export interface RetrievalResult {
 
 const RELEVANCE_THRESHOLD = 2;
 
+/**
+ * Exact-FAQ routing pre-pass.
+ *
+ * Some legitimate questions defeat TF-IDF scoring not because the
+ * knowledge is missing but because the query's only meaningful tokens
+ * are ubiquitous ("RelayPay" appears in 28/38 chunks → IDF ≈ 0), so
+ * every FAQ chunk scores ~1.04 and nothing clears the threshold. When
+ * the user's question IS a question the knowledge base explicitly
+ * answers ("What is RelayPay?" → "What Is RelayPay?"), routing to that
+ * section deterministically is more faithful than declining.
+ *
+ * Guardrails:
+ * - fires only when the whole query is a question ending in "?"
+ * - fires only when a KB section question matches the normalized query
+ *   word-for-word (no fuzzy/partial matching, no substring games)
+ * - returns the section chunk with a strong score so the grounded
+ *   pipeline, logging and refusal behavior are exactly as usual
+ */
+export function routeFaqQuestion(
+  chunks: KnowledgeChunk[],
+  query: string,
+): ScoredChunk | null {
+  const trimmed = query.trim();
+  if (!trimmed.endsWith("?")) return null;
+  const words = (s: string): string[] =>
+    s
+      .toLowerCase()
+      .replace(/[^a-z0-9\s-]/g, " ")
+      .split(/\s+/)
+      .filter(Boolean);
+  const question = words(trimmed.replace(/\?+$/, "")).join(" ");
+  if (question === "") return null;
+  for (const chunk of chunks) {
+    const headingQuestion = chunk.heading.replace(/\?+$/, "");
+    if (words(headingQuestion).join(" ") === question) {
+      return { chunk, score: RELEVANCE_THRESHOLD };
+    }
+  }
+  return null;
+}
+
 export function tokenize(text: string): string[] {
   return text
     .toLowerCase()
@@ -35,6 +76,16 @@ export function retrieveKnowledge(
   query: string,
   topK = 3,
 ): RetrievalResult {
+  // Exact-FAQ routing pre-pass (see routeFaqQuestion).
+  const routed = routeFaqQuestion(chunks, query);
+  if (routed) {
+    return {
+      query,
+      matches: [routed],
+      bestScore: routed.score,
+      relevant: true,
+    };
+  }
   const queryTokens = tokenize(query);
   if (queryTokens.length === 0) {
     return { query, matches: [], bestScore: 0, relevant: false };
