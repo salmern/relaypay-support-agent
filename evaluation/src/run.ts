@@ -83,10 +83,16 @@ async function main(): Promise<number> {
 
   const orchestrator = new SupportOrchestrator(store, chunks);
 
+  // Unique conversation IDs per run: with DATA_PROVIDER=supabase, records
+  // persist across runs, and fixed IDs would let stale rows from earlier
+  // runs pollute verdicts (e.g. escalations.length === 1).
+  const runId = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
+  const evalConv = (base: string): string => `${base}-${runId}`;
+
   try {
     // ---------- Scenario 1: knowledge-grounded answer ----------
     {
-      const conv = "eval-s1";
+      const conv = evalConv("eval-s1");
       const r = await orchestrator.handleTurn({
         conversationId: conv,
         channel: "text",
@@ -110,7 +116,7 @@ async function main(): Promise<number> {
 
     // ---------- Scenario 2: clarifying question ----------
     {
-      const conv = "eval-s2";
+      const conv = evalConv("eval-s2");
       const r1 = await orchestrator.handleTurn({
         conversationId: conv,
         channel: "text",
@@ -136,7 +142,7 @@ async function main(): Promise<number> {
 
     // ---------- Scenario 3: customer lookup ----------
     {
-      const conv = "eval-s3";
+      const conv = evalConv("eval-s3");
       const r = await orchestrator.handleTurn({
         conversationId: conv,
         channel: "text",
@@ -158,7 +164,7 @@ async function main(): Promise<number> {
 
     // ---------- Scenario 4: transaction lookup ----------
     {
-      const conv = "eval-s4";
+      const conv = evalConv("eval-s4");
       const r = await orchestrator.handleTurn({
         conversationId: conv,
         channel: "text",
@@ -180,7 +186,7 @@ async function main(): Promise<number> {
 
     // ---------- Scenario 5: payout lookup + escalation ----------
     {
-      const conv = "eval-s5";
+      const conv = evalConv("eval-s5");
       const r = await orchestrator.handleTurn({
         conversationId: conv,
         channel: "text",
@@ -205,7 +211,7 @@ async function main(): Promise<number> {
 
     // ---------- Scenario 6: ticket creation ----------
     {
-      const conv = "eval-s6";
+      const conv = evalConv("eval-s6");
       const r = await orchestrator.handleTurn({
         conversationId: conv,
         channel: "text",
@@ -229,7 +235,7 @@ async function main(): Promise<number> {
 
     // ---------- Scenario 7: human escalation ----------
     {
-      const conv = "eval-s7";
+      const conv = evalConv("eval-s7");
       const r1 = await orchestrator.handleTurn({
         conversationId: conv,
         channel: "text",
@@ -259,7 +265,7 @@ async function main(): Promise<number> {
 
     // ---------- Scenario 8: unsupported question ----------
     {
-      const conv = "eval-s8";
+      const conv = evalConv("eval-s8");
       const r = await orchestrator.handleTurn({
         conversationId: conv,
         channel: "text",
@@ -285,7 +291,7 @@ async function main(): Promise<number> {
     // (POST /vapi/webhook function-call -> { result }) is covered by the
     // API integration check below plus the manual procedure in TESTING.md.
     {
-      const conv = "eval-s9";
+      const conv = evalConv("eval-s9");
       const r = await orchestrator.handleTurn({
         conversationId: conv,
         channel: "voice",
@@ -302,7 +308,7 @@ async function main(): Promise<number> {
 
     // ---------- Scenario 10: logging completeness ----------
     {
-      const conv = "eval-s10";
+      const conv = evalConv("eval-s10");
       await orchestrator.handleTurn({
         conversationId: conv,
         channel: "text",

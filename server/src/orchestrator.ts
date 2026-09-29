@@ -11,7 +11,13 @@
  *   5. Conversation, turn, retrieval, tool-call and event records persist.
  */
 import type { AnswerType, KnowledgeChunk, Store } from "@relaypay/store";
-import { decide, extractIdentity, extractReferences, type Decision } from "./agent/decision-engine.js";
+import {
+  decide,
+  extractIdentity,
+  extractReferences,
+  normalizeVoiceReferences,
+  type Decision,
+} from "./agent/decision-engine.js";
 import { RetrievalService, type GroundedKnowledge } from "./knowledge/retrieval-service.js";
 import { RelayPayMcpClient } from "./agent/mcp-client.js";
 import { runClaudeAgent } from "./agent/claude-runner.js";
@@ -23,6 +29,8 @@ export interface TurnInput {
   channel: "voice" | "text";
   userMessage: string;
   callerIdentifier?: string | null;
+  /** Original STT transcript, kept when the message was normalized. */
+  rawTranscript?: string | null;
 }
 
 export interface TurnResult {
@@ -92,6 +100,17 @@ export class SupportOrchestrator {
   }
 
   async handleTurn(input: TurnInput): Promise<TurnResult> {
+    // Voice transcripts arrive from speech-to-text, which renders spoken
+    // references as words ("TXN-nine thousand and 1"). Normalize them to
+    // canonical IDs ("TXN-9001") before any decision runs, and keep the
+    // raw transcript for the persisted audit trail.
+    if (input.channel === "voice") {
+      const normalized = normalizeVoiceReferences(input.userMessage);
+      if (normalized !== input.userMessage) {
+        input = { ...input, userMessage: normalized, rawTranscript: input.userMessage };
+      }
+    }
+
     await this.store.createConversation({
       conversation_id: input.conversationId,
       channel: input.channel,
@@ -611,7 +630,7 @@ export class SupportOrchestrator {
 
     await this.store.addTurn({
       conversation_id: input.conversationId,
-      user_transcript: input.userMessage,
+      user_transcript: input.rawTranscript ?? input.userMessage,
       assistant_response: outcome.response,
       answer_type: outcome.answerType,
       confidence: outcome.confidence,

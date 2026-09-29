@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { classifyIntent, decide, extractIdentity, extractReferences } from "../src/agent/decision-engine.js";
+import {
+  classifyIntent,
+  decide,
+  extractIdentity,
+  extractReferences,
+  normalizeVoiceReferences,
+} from "../src/agent/decision-engine.js";
 
 describe("classifyIntent", () => {
   it("routes escalation language before everything else", () => {
@@ -113,5 +119,41 @@ describe("extractReferences / extractIdentity", () => {
   it("treats a CUS reference as identity", () => {
     const identity = extractIdentity("It's CUS-1004, check the account");
     expect(identity.companyName).toBe("CUS-1004");
+  });
+});
+
+describe("normalizeVoiceReferences", () => {
+  it("converts spoken transaction references to canonical IDs", () => {
+    expect(normalizeVoiceReferences("Can you check transaction TXN-nine thousand and 1?")).toBe(
+      "Can you check transaction TXN-9001?",
+    );
+  });
+
+  it("converts spoken payout references to canonical IDs", () => {
+    expect(normalizeVoiceReferences("what is happening with payout nine thousand and two")).toBe(
+      "what is happening with payout PAY-9002",
+    );
+  });
+
+  it("converts digit-by-digit speech (TXN 9 0 0 1)", () => {
+    expect(normalizeVoiceReferences("Can you check transaction TXN 9 0 0 1?")).toBe(
+      "Can you check transaction TXN-9001?",
+    );
+  });
+
+  it("handles oh for zero (nine oh oh one)", () => {
+    expect(normalizeVoiceReferences("transaction TXN nine oh oh one please")).toBe(
+      "transaction TXN-9001 please",
+    );
+  });
+
+  it("leaves canonical text-channel references untouched", () => {
+    const text = "Can you check transaction TXN-9001 and payout PAY-7002?";
+    expect(normalizeVoiceReferences(text)).toBe(text);
+  });
+
+  it("does not rewrite ambiguous single words outside a reference", () => {
+    const text = "I need help with a payment to one of my vendors";
+    expect(normalizeVoiceReferences(text)).toBe(text);
   });
 });

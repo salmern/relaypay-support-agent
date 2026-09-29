@@ -186,6 +186,126 @@ export function extractReferences(text: string): {
   };
 }
 
+// --- Voice-channel reference normalization -------------------------------
+// Speech-to-text renders spoken references as words: customers say
+// "T X N nine thousand and one" and Deepgram writes
+// "TXN-nine thousand and 1" or "TXN 9 0 0 1". The strict TXN-\d+
+// extraction above cannot read those, so voice lookups would always
+// fail. This deterministic normalizer rewrites spoken references into
+// canonical IDs before the decision engine runs. Text-channel input is
+// left untouched (typed references are already canonical).
+
+const NUMBER_WORDS: Record<string, number> = {
+  zero: 0, oh: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6,
+  seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12,
+  thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17,
+  eighteen: 18, nineteen: 19, twenty: 20, thirty: 30, forty: 40,
+  fifty: 50, sixty: 60, seventy: 70, eighty: 80, ninety: 90,
+  hundred: 100, thousand: 1000,
+};
+
+const NUMBER_WORD_PATTERN =
+  "\\d+|zero|oh|one|two|three|four|five|six|seven|eight|nine|ten|eleven|" +
+  "twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|" +
+  "twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand";
+
+/**
+ * Parses spoken number tokens into a value. Digit-by-digit runs
+ * ("9 0 0 1", "nine oh oh one") concatenate; magnitude phrases
+ * ("nine thousand and one") use additive magnitude parsing.
+ */
+function parseSpokenNumberTokens(rawTokens: string[]): number | null {
+  const tokens = rawTokens
+    .map((token) => token.toLowerCase().replace(/[^a-z0-9]/g, ""))
+    .filter((token) => token !== "" && token !== "and");
+  if (tokens.length === 0) return null;
+
+  // Any "oh" means digit-by-digit speech ("nine oh oh one" = 9001),
+  // never additive (9+0+0+1 = 10). Every token must be a single digit —
+  // spoken ("nine", "one") or numeric ("9", "1") — or an "oh".
+  if (tokens.some((token) => token === "oh")) {
+    const isSingleDigit = (token: string): boolean =>
+      /^\d$/.test(token) || (NUMBER_WORDS[token] !== undefined && NUMBER_WORDS[token]! < 10);
+    if (!tokens.every(isSingleDigit)) return null;
+    return Number(tokens.map((token) => (token === "oh" ? "0" : String(NUMBER_WORDS[token] ?? token))).join(""));
+  }
+  if (tokens.every((token) => /^\d$/.test(token))) {
+    return Number(tokens.map((token) => token).join(""));
+  }
+
+  let total = 0;
+  let current = 0;
+  for (const token of tokens) {
+    if (/^\d+$/.test(token)) {
+      current += Number(token);
+      continue;
+    }
+    const value = NUMBER_WORDS[token];
+    if (value === undefined) return null;
+    if (value === 100) {
+      current = (current === 0 ? 1 : current) * 100;
+    } else if (value === 1000) {
+      total += (current === 0 ? 1 : current) * 1000;
+      current = 0;
+    } else {
+      current += value;
+    }
+  }
+  const result = total + current;
+  return result > 0 ? result : null;
+}
+
+/**
+ * Only rewrite confident matches: at least two number tokens
+ * ("nine thousand", "9 0 0 1") or one multi-digit number ("9001").
+ * A lone word ("pay one") is too ambiguous in plain English.
+ */
+function isConfidentSpokenReference(tokens: string[]): boolean {
+  if (tokens.length >= 2) return true;
+  return tokens.length === 1 && /^\d{2,}$/.test(tokens[0] ?? "");
+}
+
+const NUMBER_OR_AND = new RegExp(`^(?:${NUMBER_WORD_PATTERN}|and)$`, "i");
+
+function canonicalPrefix(prefix: string): "TXN" | "PAY" | "CUS" {
+  const upper = prefix.toUpperCase();
+  if (upper.startsWith("TXN")) return "TXN";
+  if (upper.startsWith("CUS")) return "CUS";
+  return "PAY"; // "pay" and "payout"
+}
+
+export function normalizeVoiceReferences(text: string): string {
+  // Capture the spoken tail after TXN/PAY/PAYOUT/CUS up to the next
+  // sentence boundary or a trailing courtesy word ("please"). The lazy
+  // quantifier keeps separators OUT of the match, so spacing and other
+  // references in the sentence are never consumed or merged.
+  const refRegex = new RegExp(
+    "\\b(txn|payout|pay|cus)\\b[\\s:-]*([^.,;!?]*?)(?=[.,;!?]|$|\\b(?:please|thanks)\\b)",
+    "gi",
+  );
+  return text.replace(refRegex, (match: string, prefix: string, tail: string) => {
+    const words = tail.toLowerCase().match(/[a-z0-9]+/g) ?? [];
+    // Strict mode: every word in the tail must be a number word, "and",
+    // or digits. Anything else ("payout PAY-7002", "for the invoice")
+    // means this is not a clean spoken reference — leave it untouched.
+    if (!words.every((word) => NUMBER_OR_AND.test(word))) return match;
+    const numberTokens =
+      tail.match(new RegExp(NUMBER_WORD_PATTERN, "gi")) ?? [];
+    if (!isConfidentSpokenReference(numberTokens)) return match;
+    const parsed = parseSpokenNumberTokens(numberTokens);
+    if (parsed === null) return match;
+    // Preserve any whitespace the lazy tail swallowed ("TXN-9001 please"),
+    // and keep the spoken noun for payout references ("payout PAY-9002"),
+    // since "payout" is sentence wording rather than part of the ID.
+    const trailing = match.match(/\s*$/)?.[0] ?? "";
+    const reference = `${canonicalPrefix(prefix)}-${parsed}`;
+    const spoken = prefix.toLowerCase();
+    return spoken === "pay" || spoken === "payout"
+      ? `${prefix} ${reference}${trailing}`
+      : `${reference}${trailing}`;
+  });
+}
+
 /**
  * Detects likely identity information: "I am X from Y" / "this is Y" /
  * a company-like name or a CUS- reference. Used to decide whether a
