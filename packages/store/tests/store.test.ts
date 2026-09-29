@@ -34,6 +34,16 @@ describe("FAQ-question routing", () => {
     expect(typed.matches[0]!.chunk.heading.toLowerCase()).toContain("what is relaypay");
   });
 
+  it("routes repeated speech — STT stitches re-asks into one transcript", () => {
+    // Verbatim production capture from a real voice call.
+    const stuttered = retrieveKnowledge(
+      kb,
+      "What is Relay Pay? Relay Pay? Relay Pay is Relay Pay?",
+    );
+    expect(stuttered.relevant).toBe(true);
+    expect(stuttered.matches[0]!.chunk.heading.toLowerCase()).toContain("what is relaypay");
+  });
+
   it("does not fire for paraphrases or unanswered questions", () => {
     expect(routeFaqQuestion(kb, "What exactly is RelayPay?")).toBeNull(); // not exact
     expect(routeFaqQuestion(kb, "What is the meaning of life?")).toBeNull();

@@ -33,14 +33,16 @@ const RELEVANCE_THRESHOLD = 2;
  * answers ("What is RelayPay?" → "What Is RelayPay?"), routing to that
  * section deterministically is more faithful than declining.
  *
- * Matching is exact but separator-insensitive: queries and headings are
- * reduced to lowercase alphanumeric keys, so "what is relay pay?"
- * (speech-to-text often splits the brand into two words) and
- * "What is RelayPay" (typed without a question mark) both route to
- * "What Is RelayPay?". There is no fuzzy or partial matching — the
- * WHOLE query must equal the WHOLE heading, so paraphrases and
- * non-KB questions still fall through to scored retrieval and the
- * grounded refusal.
+ * Matching is exact but separator-insensitive, and runs per sentence:
+ * queries and headings are reduced to lowercase alphanumeric keys, and
+ * EACH sentence of the query is compared to each heading key. This
+ * handles "what is relay pay?" (speech-to-text splits the brand),
+ * "What is RelayPay" (no question mark), and repeated speech — voice
+ * callers re-ask while waiting ("What is Relay Pay? Relay Pay?"), and
+ * the STT stitches the repeats into one transcript. There is no fuzzy
+ * or partial matching — a sentence must equal the WHOLE heading — so
+ * paraphrases and non-KB questions still fall through to scored
+ * retrieval and the grounded refusal.
  */
 export function routeFaqQuestion(
   chunks: KnowledgeChunk[],
@@ -50,11 +52,14 @@ export function routeFaqQuestion(
   // erases spacing, punctuation and casing differences between spoken,
   // typed and canonical question forms.
   const key = (value: string): string => value.toLowerCase().replace(/[^a-z0-9]/g, "");
-  const questionKey = key(query);
-  if (questionKey === "") return null;
+  const sentences = query.split(/[?!.]+/);
   for (const chunk of chunks) {
-    if (key(chunk.heading) === questionKey) {
-      return { chunk, score: RELEVANCE_THRESHOLD };
+    const headingKey = key(chunk.heading);
+    if (headingKey === "") continue;
+    for (const sentence of sentences) {
+      if (key(sentence) === headingKey) {
+        return { chunk, score: RELEVANCE_THRESHOLD };
+      }
     }
   }
   return null;
