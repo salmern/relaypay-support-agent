@@ -2,7 +2,24 @@
  * Vapi web SDK wrapper: connection, listening and speaking state,
  * live transcript events. Only the PUBLIC key is used here.
  */
-import Vapi from "@vapi-ai/web";
+import * as VapiNamespace from "@vapi-ai/web";
+
+// @vapi-ai/web ships CommonJS only (main: dist/vapi.js, no ESM build).
+// Vite's production build wraps CJS deps in an extra `{ default }`
+// interop layer, which makes `new Vapi()` throw
+// "rl.default is not a constructor" in the deployed bundle (dev works
+// fine). Unwrap defensively so the constructor resolves correctly in
+// every module-interop shape: dev (esbuild), prod (rollup commonjs),
+// with or without a recognized __esModule marker.
+type VapiConstructor = typeof VapiNamespace.default;
+type VapiInstance = InstanceType<VapiConstructor>;
+
+const VapiCtor = (
+  (VapiNamespace as unknown as { default?: { default?: unknown } }).default
+    ?.default ??
+  (VapiNamespace as unknown as { default?: unknown }).default ??
+  (VapiNamespace as unknown as VapiConstructor)
+) as VapiConstructor;
 
 export type CallState = "idle" | "connecting" | "connected" | "error";
 
@@ -20,7 +37,7 @@ export interface VapiEvents {
 }
 
 export class VapiVoiceClient {
-  private vapi: Vapi | null = null;
+  private vapi: VapiInstance | null = null;
   private readonly events: VapiEvents;
 
   constructor(events: VapiEvents) {
@@ -36,7 +53,7 @@ export class VapiVoiceClient {
       return false;
     }
     try {
-      this.vapi = new Vapi(apiKey);
+      this.vapi = new VapiCtor(apiKey);
       this.wireEvents();
       this.events.onCallState("connecting");
       void this.vapi.start(assistantId);
