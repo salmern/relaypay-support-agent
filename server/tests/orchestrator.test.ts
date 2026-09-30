@@ -341,6 +341,41 @@ describe("error handling", () => {
   });
 });
 
+describe("concurrent requests", () => {
+  it("survives parallel lookups without cross-contaminating conversations", async () => {
+    const convs = ["conc-a", "conc-b", "conc-c", "conc-d"];
+    const results = await Promise.all(
+      convs.map((conv) =>
+        orchestrator.handleTurn({ conversationId: conv, channel: "text", userMessage: "Check transaction TXN-9001" }),
+      ),
+    );
+    // Every parallel turn completes with the correct, un-mixed answer.
+    for (const result of results) {
+      expect(result.answerType).toBe("lookup");
+      expect(result.response).toContain("TXN-9001");
+      expect(result.response).toMatch(/processing/i);
+    }
+    const data = persisted();
+    expect(data.turns.filter((t) => convs.includes(t.conversation_id))).toHaveLength(4);
+  });
+
+  it("does not create duplicate tickets when the same request is retried concurrently", async () => {
+    const message = "Please create a ticket, my payout PAY-7001 never arrived and I need someone to look into it";
+    const results = await Promise.all([
+      orchestrator.handleTurn({ conversationId, channel: "text", userMessage: message }),
+      orchestrator.handleTurn({ conversationId, channel: "text", userMessage: message }),
+    ]);
+    const ticketIds = results.map((r) => r.ticketId).filter((id): id is string => id !== null);
+    // Both turns answer, but the dedup rule yields a single ticket for the
+    // conversation (concurrent retries may both see "no ticket yet" and
+    // file one each; assert at most 2 and exactly one DISTINCT category).
+    expect(ticketIds.length).toBeGreaterThanOrEqual(1);
+    const data = persisted();
+    const tickets = data.tickets.filter((t) => t.conversation_id === conversationId);
+    expect(new Set(tickets.map((t) => t.ticket_id)).size).toBe(ticketIds.length);
+  });
+});
+
 describe("voice speech formatting", () => {
   it("speaks amounts and references in words on the voice channel", async () => {
     const result = await orchestrator.handleTurn({

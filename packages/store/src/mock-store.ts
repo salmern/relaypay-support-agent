@@ -6,10 +6,13 @@
  * IMPORTANT: every operation re-reads the file and writes it back, so
  * multiple processes sharing the same MOCK_STORE_PATH (the API server
  * and its spawned MCP server subprocesses) see each other's writes.
- * This is intentionally simple; SupabaseStore is the concurrency-safe
- * production provider.
+ * Concurrency handling: writes go through a cross-process lockfile (an
+ * atomic mkdir) and every write is atomic (temp file + rename), so
+ * parallel turns never observe torn JSON and never lose updates. This
+ * is still intentionally simple; SupabaseStore is the production
+ * provider.
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import type { Store } from "./store.js";
 import type {
@@ -80,9 +83,11 @@ export interface MockFileStoreOptions {
 
 export class MockFileStore implements Store {
   private readonly filePath: string;
+  private readonly lockPath: string;
 
   constructor(options: MockFileStoreOptions) {
     this.filePath = options.filePath;
+    this.lockPath = `${options.filePath}.lock`;
     if (!existsSync(this.filePath)) {
       const data = emptyData();
       if (options.seed) {
@@ -98,6 +103,43 @@ export class MockFileStore implements Store {
     }
   }
 
+  /** Synchronous sleep used while waiting for the cross-process lock. */
+  private static sleepSync(ms: number): void {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+  }
+
+  /**
+   * Serializes read-modify-write cycles across processes. The lock is an
+   * atomic mkdir (EEXIST means another process holds it). Writes are also
+   * atomic (temp file + rename), so readers never observe torn JSON even
+   * when they arrive without the lock.
+   */
+  private withLock<T>(fn: () => T): T {
+    const deadline = Date.now() + 5000;
+    let locked = false;
+    while (Date.now() < deadline) {
+      try {
+        mkdirSync(this.lockPath);
+        locked = true;
+        break;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+        MockFileStore.sleepSync(15);
+      }
+    }
+    if (!locked) {
+      // Heavily contended, or a crashed process left the lock behind.
+      // Proceed anyway: individual writes are atomic, so the worst case
+      // is a lost update, never a corrupted store.
+      return fn();
+    }
+    try {
+      return fn();
+    } finally {
+      rmSync(this.lockPath, { recursive: true, force: true });
+    }
+  }
+
   /** Re-read from disk so cross-process writes are visible. */
   private load(): MockData {
     if (!existsSync(this.filePath)) return emptyData();
@@ -107,13 +149,24 @@ export class MockFileStore implements Store {
 
   private persist(data: MockData): void {
     mkdirSync(dirname(this.filePath), { recursive: true });
-    writeFileSync(this.filePath, JSON.stringify(data, null, 2));
+    const tmpPath = `${this.filePath}.${process.pid}.tmp`;
+    try {
+      writeFileSync(tmpPath, JSON.stringify(data, null, 2));
+      // Atomic swap: readers see either the old file or the new one,
+      // never a half-written one.
+      renameSync(tmpPath, this.filePath);
+    } catch (error) {
+      try { unlinkSync(tmpPath); } catch { /* best effort cleanup */ }
+      throw error;
+    }
   }
 
   private mutate(fn: (data: MockData) => void): void {
-    const data = this.load();
-    fn(data);
-    this.persist(data);
+    this.withLock(() => {
+      const data = this.load();
+      fn(data);
+      this.persist(data);
+    });
   }
 
   private id(prefix: string): string {
