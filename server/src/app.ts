@@ -17,6 +17,8 @@ export interface BuildAppOptions {
   knowledgeChunks: KnowledgeChunk[];
   corsOrigins?: string[];
   vapiServerSecret?: string | undefined;
+  /** When set, /api/debug/* requires the `x-debug-token` header to match. */
+  debugToken?: string | undefined;
 }
 
 function safeEqual(a: string, b: string): boolean {
@@ -207,6 +209,21 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
   });
 
   // ---------------- Debug / observability ----------------
+  // These endpoints expose conversation transcripts, tool-call summaries
+  // and escalation contact details, so they must never be public. When
+  // DEBUG_TOKEN is configured, every /api/debug/* request must present a
+  // matching `x-debug-token` header (constant-time compare). Without the
+  // variable the endpoints stay open for local development only.
+  const debugToken = options.debugToken ?? process.env.DEBUG_TOKEN;
+
+  app.addHook("onRequest", async (request, reply) => {
+    if (!debugToken) return;
+    if (!request.url.startsWith("/api/debug/")) return;
+    const provided = request.headers["x-debug-token"];
+    if (typeof provided !== "string" || !safeEqual(provided, debugToken)) {
+      return reply.code(401).send({ error: "debug endpoints require a valid x-debug-token header" });
+    }
+  });
 
   app.get("/api/debug/conversations", async () => {
     return options.store.listConversations();

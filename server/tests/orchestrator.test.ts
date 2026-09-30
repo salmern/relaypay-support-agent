@@ -118,11 +118,30 @@ describe("Scenario 3: customer lookup", () => {
     expect(calls.some((c) => c.tool_name === "lookup_customer" && c.status === "success")).toBe(true);
   });
 
-  it("escalates restricted accounts instead of diagnosing them", async () => {
-    const result = await turn("This is Efua from AccraStack, can you check my account?");
-    expect(result.answerType).toBe("escalation");
-    expect(result.escalationId).toBeTruthy();
-    expect(persisted().escalations.some((e) => e.category === "account" && e.conversation_id === conversationId)).toBe(true);
+  it("escalates restricted accounts: contact first, record on next turn", async () => {
+    const first = await turn("This is Efua from AccraStack, can you check my account?");
+    // Two-step escalation: the first turn asks for contact details and
+    // must NOT create a contact-less escalation record.
+    expect(first.answerType).toBe("escalation");
+    expect(first.escalationId).toBeNull();
+    expect(first.response).toMatch(/name|email|specialist/i);
+    expect(persisted().escalations.filter((e) => e.conversation_id === conversationId)).toHaveLength(0);
+
+    const second = await turn("My name is Efua Mensah, email efua@accrastack.example");
+    expect(second.escalationId).toMatch(/^ESC-/);
+    const escalations = persisted().escalations.filter((e) => e.conversation_id === conversationId);
+    expect(escalations).toHaveLength(1);
+    expect(escalations[0]!.category).toBe("account");
+    expect(escalations[0]!.user_email).toBe("efua@accrastack.example");
+  });
+
+  it("does not create duplicate account escalations on repeated questions", async () => {
+    await turn("This is Efua from AccraStack, can you check my account?");
+    await turn("Efua Mensah, efua@accrastack.example");
+    const third = await turn("Can you check my account again?");
+    expect(third.escalationId).toMatch(/^ESC-/); // reuses the same record
+    const escalations = persisted().escalations.filter((e) => e.conversation_id === conversationId);
+    expect(escalations).toHaveLength(1);
   });
 
   it("asks for identifying info when none is given", async () => {
@@ -157,17 +176,32 @@ describe("Scenario 4: transaction lookup", () => {
 });
 
 describe("Scenario 5: payout lookup + compliance escalation", () => {
-  it("identifies PAY-7002 review and creates an escalation record", async () => {
-    const result = await turn("What is happening with payout PAY-7002?");
-    expect(result.response).toMatch(/review/i);
-    expect(result.escalationId).toBeTruthy();
+  it("identifies PAY-7002 review, collects contact, then escalates", async () => {
+    const first = await turn("What is happening with payout PAY-7002?");
+    expect(first.response).toMatch(/review/i);
+    expect(first.answerType).toBe("escalation");
+    expect(first.escalationId).toBeNull(); // contact details come first
+    expect(first.response).toMatch(/name|email/i);
+
+    const second = await turn("My name is Efua Mensah, email efua@accrastack.example, callback tomorrow afternoon");
+    expect(second.escalationId).toMatch(/^ESC-/);
     const data = persisted();
     const escalations = data.escalations.filter((e) => e.conversation_id === conversationId);
     expect(escalations).toHaveLength(1);
     expect(escalations[0]!.category).toBe("compliance");
+    expect(escalations[0]!.user_email).toBe("efua@accrastack.example");
+    expect(escalations[0]!.call_booked).toBe(true);
     const calls = data.tool_calls.filter((c) => c.conversation_id === conversationId);
     expect(calls.some((c) => c.tool_name === "lookup_payout")).toBe(true);
     expect(calls.some((c) => c.tool_name === "create_escalation")).toBe(true);
+  });
+
+  it("does not duplicate the compliance escalation when asked again", async () => {
+    await turn("What is happening with payout PAY-7002?");
+    await turn("Efua Mensah, efua@accrastack.example");
+    const again = await turn("What is happening with payout PAY-7002?");
+    expect(again.escalationId).toMatch(/^ESC-/);
+    expect(persisted().escalations.filter((e) => e.conversation_id === conversationId)).toHaveLength(1);
   });
 
   it("reports PAY-7003 failure without inventing a resolution", async () => {
@@ -195,6 +229,13 @@ describe("Scenario 6: ticket creation", () => {
     expect(ticket!.conversation_id).toBe(conversationId);
     // Ticket confirmation only after actual MCP success
     expect(result.response).toMatch(/ticket/i);
+  });
+
+  it("returns the same ticket when the customer repeats the request", async () => {
+    const first = await turn("My invoice payment failed and I need someone to look at it. Transaction TXN-9002.");
+    const second = await turn("Seriously, my invoice payment failed and I need someone to look at it. Transaction TXN-9002.");
+    expect(second.ticketId).toBe(first.ticketId);
+    expect(persisted().tickets.filter((t) => t.conversation_id === conversationId)).toHaveLength(1);
   });
 });
 

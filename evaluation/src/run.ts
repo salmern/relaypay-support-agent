@@ -187,24 +187,33 @@ async function main(): Promise<number> {
     // ---------- Scenario 5: payout lookup + escalation ----------
     {
       const conv = evalConv("eval-s5");
-      const r = await orchestrator.handleTurn({
+      const r1 = await orchestrator.handleTurn({
         conversationId: conv,
         channel: "text",
         userMessage: "What is happening with payout PAY-7002?",
       });
+      // Compliance escalations are two-step: contact details are collected
+      // before the escalation record is created (escalation-rules.md).
+      const r2 = await orchestrator.handleTurn({
+        conversationId: conv,
+        channel: "text",
+        userMessage: "My name is Efua Mensah, email efua@accrastack.example",
+      });
       const escalations = await store.listEscalations(conv);
       const calls = await store.listToolCalls(conv);
-      const ok = /review/i.test(r.response)
-        && r.escalationId !== null
+      const ok = /review/i.test(r1.response)
+        && r1.escalationId === null
+        && r2.escalationId !== null
         && escalations.length === 1
         && escalations[0]!.category === "compliance"
+        && escalations[0]!.user_email === "efua@accrastack.example"
         && calls.some((c) => c.tool_name === "lookup_payout")
         && calls.some((c) => c.tool_name === "create_escalation");
       record(
         "Scenario 5: Payout Lookup (review required)",
-        "Use MCP payout lookup; identify that the payout requires review; escalate because it involves compliance review; escalation record created",
+        "Use MCP payout lookup; identify that the payout requires review; collect contact details; create one compliance escalation record",
         ok,
-        fmt(r),
+        `${fmt(r1)} || ${fmt(r2)}`,
         `escalation=${escalations[0]?.escalation_id ?? "none"}`,
       );
     }

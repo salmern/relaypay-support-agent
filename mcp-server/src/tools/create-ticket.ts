@@ -24,6 +24,18 @@ export async function handleCreateTicket(
   input: z.infer<z.ZodObject<typeof createTicketInputSchema>>,
 ) {
   const outcome = await withAudit(ctx, createTicketTool.name, createTicketTool.purpose, input, async () => {
+    // Duplicate prevention: a repeated request in the same conversation
+    // returns the existing open ticket (same category and, when present,
+    // same linked transaction) instead of filing another one.
+    const existing = (await ctx.store.listTickets(input.conversation_id)).find(
+      (t) =>
+        t.status === "open" &&
+        t.category === input.category &&
+        (input.transaction_id === undefined || t.transaction_id === input.transaction_id),
+    );
+    if (existing) {
+      return { ticket_id: existing.ticket_id, status: existing.status, duplicate_prevented: true };
+    }
     const ticket = await ctx.store.createTicket({
       customer_id: input.customer_id ?? null,
       transaction_id: input.transaction_id ?? null,

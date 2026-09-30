@@ -239,6 +239,29 @@ export class MockFileStore implements Store {
     return row;
   }
 
+  async updateEscalationContact(
+    escalation_id: string,
+    contact: { user_name?: string | null; user_email?: string | null; preferred_time?: string | null },
+  ): Promise<Escalation | null> {
+    let updated: Escalation | null = null;
+    this.mutate((data) => {
+      const row = data.escalations.find((e) => e.escalation_id === escalation_id);
+      if (!row) return;
+      if (contact.user_name !== undefined && contact.user_name !== null) row.user_name = contact.user_name;
+      if (contact.user_email !== undefined && contact.user_email !== null) row.user_email = contact.user_email;
+      if (contact.preferred_time !== undefined && contact.preferred_time !== null) {
+        row.preferred_time = contact.preferred_time;
+        row.call_booked = true;
+      }
+      updated = row;
+    });
+    return updated;
+  }
+
+  async getEscalation(escalation_id: string): Promise<Escalation | null> {
+    return this.load().escalations.find((e) => e.escalation_id === escalation_id) ?? null;
+  }
+
   async addEvaluation(record: Omit<EvaluationRecord, "created_at">): Promise<EvaluationRecord> {
     const row: EvaluationRecord = { ...record, created_at: new Date().toISOString() };
     this.mutate((data) => data.evaluations.push(row));

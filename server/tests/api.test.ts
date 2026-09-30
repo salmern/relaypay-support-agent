@@ -31,15 +31,27 @@ const app = buildApp({
   vapiServerSecret: "test-secret",
 });
 
+// A second app instance with DEBUG_TOKEN set, to verify the debug
+// endpoints are locked down in production-style configuration.
+const guardedApp = buildApp({
+  store,
+  knowledgeChunks: chunks,
+  corsOrigins: ["http://localhost:5173"],
+  vapiServerSecret: "test-secret",
+  debugToken: "audit-token-123",
+});
+
 beforeAll(async () => {
   process.env.MOCK_STORE_PATH = storePath;
   await store.seedIfEmpty({ ...seed, knowledgeChunks: chunks });
   await app.ready();
+  await guardedApp.ready();
 });
 
 afterAll(async () => {
   delete process.env.MOCK_STORE_PATH;
   await app.close();
+  await guardedApp.close();
 });
 
 describe("health", () => {
@@ -163,6 +175,22 @@ describe("Vapi webhook", () => {
     expect(conversation?.ended_at).toBeTruthy();
   });
 
+  it("supports the legacy function-call shape for older assistant configs", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/vapi/webhook",
+      headers: { "x-vapi-secret": "test-secret" },
+      payload: {
+        message: { type: "function-call", functionCall: { name: "support_agent", parameters: { transcript: "Can you check transaction TXN-9001?" } } },
+        call: { id: "call-legacy" },
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { result: string };
+    expect(body.result).toContain("TXN-9001");
+    expect(body.result).toMatch(/processing/i);
+  });
+
   it("responds safely when the transcript is empty", async () => {
     const res = await app.inject({
       method: "POST",
@@ -193,6 +221,28 @@ describe("debug endpoints", () => {
     expect(body.turns.length).toBeGreaterThan(0);
     expect(body.tool_calls.length).toBeGreaterThan(0);
     expect(Array.isArray(body.events)).toBe(true);
+  });
+
+  it("rejects unauthenticated access when DEBUG_TOKEN is configured", async () => {
+    const noHeader = await guardedApp.inject({ method: "GET", url: "/api/debug/conversations" });
+    expect(noHeader.statusCode).toBe(401);
+    const wrongHeader = await guardedApp.inject({
+      method: "GET",
+      url: "/api/debug/conversations",
+      headers: { "x-debug-token": "wrong" },
+    });
+    expect(wrongHeader.statusCode).toBe(401);
+    const rightHeader = await guardedApp.inject({
+      method: "GET",
+      url: "/api/debug/conversations",
+      headers: { "x-debug-token": "audit-token-123" },
+    });
+    expect(rightHeader.statusCode).toBe(200);
+  });
+
+  it("keeps non-debug endpoints open when DEBUG_TOKEN is configured", async () => {
+    const res = await guardedApp.inject({ method: "GET", url: "/api/health" });
+    expect(res.statusCode).toBe(200);
   });
 
   it("404s for unknown conversations", async () => {

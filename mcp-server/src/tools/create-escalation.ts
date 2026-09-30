@@ -33,6 +33,42 @@ export async function handleCreateEscalation(
     ? (input.category.trim().toLowerCase() as "compliance" | "account" | "dispute" | "payment" | "other")
     : "other";
   const outcome = await withAudit(ctx, createEscalationTool.name, createEscalationTool.purpose, input, async () => {
+    // Duplicate prevention: customers repeat themselves (frustration,
+    // re-asks while waiting). One OPEN escalation per conversation and
+    // category — a repeat returns the existing record instead of
+    // creating another. When the existing record has no contact details
+    // yet and this call provides them, enrich the record instead.
+    const existing = (await ctx.store.listEscalations(conversationId)).find(
+      (e) => e.category === category && e.status === "open",
+    );
+    if (existing) {
+      const providesContact = Boolean(input.user_email && !existing.user_email);
+      if (providesContact) {
+        const updated = await ctx.store.updateEscalationContact(existing.escalation_id, {
+          user_name: input.user_name ?? null,
+          user_email: input.user_email ?? null,
+          preferred_time: input.preferred_time ?? null,
+        });
+        return {
+          escalation_id: existing.escalation_id,
+          status: updated?.status ?? existing.status,
+          follow_up_summary:
+            "A RelayPay support specialist will follow up with the customer" +
+            (updated?.preferred_time ? ` at the requested time (${updated.preferred_time})` : "") +
+            ".",
+          contact_recorded: true,
+        };
+      }
+      return {
+        escalation_id: existing.escalation_id,
+        status: existing.status,
+        follow_up_summary:
+          "A RelayPay support specialist will follow up with the customer" +
+          (existing.preferred_time ? ` at the requested time (${existing.preferred_time})` : "") +
+          ".",
+        duplicate_prevented: true,
+      };
+    }
     const escalation = await ctx.store.createEscalation({
       ticket_id: input.ticket_id ?? null,
       customer_id: input.customer_id ?? null,

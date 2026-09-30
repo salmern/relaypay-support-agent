@@ -3,16 +3,16 @@
 ## Automated tests
 
 ```bash
-npm test          # all 66 tests across packages
+npm test          # all 96 tests across packages
 ```
 
 | Suite | Count | What it actually verifies |
 | --- | --- | --- |
-| `packages/store` | 16 | KB chunking completeness; seed CSV parsing (stable IDs, empty→null); retrieval ranking incl. Scenario-8 ranking; mock-store idempotent seeding, lookups, record persistence |
-| `mcp-server` | 12 | Real stdio MCP client: tools/list = exactly the 6 required tools; seeded lookup values (TXN-9001 processing, PAY-7002 review); found:false without crashing; ticket + escalation actually persisted; audit row per call |
-| `server/decision-engine` | 16 | Every decision rule: escalation triggers + categories, clarify-not-guess, guarantee→knowledge, ticket-over-lookup, reference/identity extraction |
-| `server/orchestrator` | 21 | Scenarios 1–8 + 10 end-to-end against real MCP subprocesses: deep assertions on responses AND persisted records (turns, retrievals, tool calls, tickets, escalations, events); PII masking; escalated conversation closing; store-outage error handling |
-| `server/api` | 13 | Text channel; Vapi webhook contract (`tool-calls` → `{results:[{toolCallId,result}]}`, `end-of-call-report` → conversation closed), secret rejection, CORS allowlist, debug endpoints |
+| `packages/store` | 21 | KB chunking completeness; seed CSV parsing (stable IDs, empty→null); retrieval ranking incl. Scenario-8 ranking + FAQ-question routing; mock-store idempotent seeding, lookups, record persistence |
+| `mcp-server` | 12 | Real stdio MCP client: tools/list = exactly the 6 required tools; seeded lookup values (TXN-9001 processing, PAY-7002 review); found:false without crashing; ticket + escalation actually persisted; duplicate prevention; audit row per call |
+| `server/decision-engine` | 23 | Every decision rule: escalation triggers + categories, clarify-not-guess, guarantee→knowledge, ticket-over-lookup, reference/identity extraction, spoken-reference normalization ("TXN-nine thousand and 1" → TXN-9001) |
+| `server/orchestrator` | 24 | Scenarios 1–8 + 10 end-to-end against real MCP subprocesses: deep assertions on responses AND persisted records (turns, retrievals, tool calls, tickets, escalations, events); two-step escalations with contact collection; duplicate escalation/ticket prevention; PII masking; escalated conversation closing; store-outage error handling |
+| `server/api` | 16 | Text channel; Vapi webhook contract (`tool-calls` + legacy `function-call` → spoken result, `end-of-call-report` → conversation closed), secret rejection, CORS allowlist, debug endpoints incl. DEBUG_TOKEN auth guard |
 
 Not counted above: `npm run mcp:smoke` (independent MCP contract check).
 

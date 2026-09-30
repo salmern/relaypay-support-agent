@@ -22,6 +22,9 @@ export interface Store {
   createTicket(ticket: Omit<SupportTicket, "ticket_id" | "created_at" | "status"> & { status?: SupportTicket["status"] }): Promise<SupportTicket>;
   getTicket(ticket_id: string): Promise<SupportTicket | null>;
   createEscalation(escalation: Omit<Escalation, "escalation_id" | "created_at" | "status"> & { status?: Escalation["status"] }): Promise<Escalation>;
+  /** Attaches follow-up contact details to an existing escalation record. */
+  updateEscalationContact(escalation_id: string, contact: { user_name?: string | null; user_email?: string | null; preferred_time?: string | null }): Promise<Escalation | null>;
+  getEscalation(escalation_id: string): Promise<Escalation | null>;
   addEvaluation(record: Omit<EvaluationRecord, "created_at">): Promise<EvaluationRecord>;
   listEvaluations(): Promise<EvaluationRecord[]>;
 

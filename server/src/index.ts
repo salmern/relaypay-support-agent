@@ -36,8 +36,8 @@ async function main(): Promise<void> {
     knowledgeChunks: chunks,
     corsOrigins,
     vapiServerSecret: process.env.VAPI_SERVER_SECRET,
+    debugToken: process.env.DEBUG_TOKEN,
   });
-
   await app.listen({ port, host: "0.0.0.0" });
   process.stdout.write(
     `RelayPay support agent API listening on :${port} ` +

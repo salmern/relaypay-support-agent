@@ -272,25 +272,44 @@ export class SupportOrchestrator {
     }
 
     // Escalation rule: payout stuck in review needs a human (Scenario 5).
+    // Compliance reviews follow the same two-step escalation: log pending,
+    // collect contact details, then create the record (see lookupAccount).
+    // An already-open escalation for this category is reused instead of
+    // duplicated, so repeated questions never file a second record.
     if (result.status === "review required") {
       const complianceRelated = /compliance/i.test(String(result.failure_reason ?? ""));
-      const escalation = await client.callTool("create_escalation", {
-        category: complianceRelated ? "compliance" : "payment",
-        reason: `Payout ${String(result.payout_id)} requires review: ${String(result.failure_reason ?? "status review")}`,
+      const category = complianceRelated ? "compliance" : "payment";
+      const existing = (await this.store.listEscalations(input.conversationId)).find(
+        (e) => e.category === category && e.status === "open",
+      );
+      if (existing && existing.user_email) {
+        base.escalationId = existing.escalation_id;
+        const response =
+          (await this.phrase(input, decision, null, base.mcpCalls, templates.payoutFoundResponse(result as never))) +
+          " This is already with our specialist team, and they will follow up with you.";
+        return this.finishTurn(input, base, {
+          response,
+          answerType: "escalation",
+          confidence: 0.9,
+          uncertaintyNote: null,
+        });
+      }
+      await client.callTool("log_conversation_event", {
+        conversation_id: input.conversationId,
+        event_type: "escalation_pending_contact",
+        summary: `Payout ${String(result.payout_id)} requires review: ${String(result.failure_reason ?? "status review")}`,
+        metadata: { category },
       });
-      base.mcpCalls.push({ tool: "create_escalation", result: escalation });
-      const escalationOk = typeof escalation.escalation_id === "string" && escalation.escalation_id !== "";
-      base.escalationId = escalationOk ? String(escalation.escalation_id) : null;
 
       const response =
         (await this.phrase(input, decision, null, base.mcpCalls, templates.payoutFoundResponse(result as never))) +
-        (escalationOk ? " I'm also handing this to our specialist team, and they will follow up with you." : "");
+        " This needs our specialist team, so I'm handing it over. Could I take your name and email so they can follow up with you?";
 
       return this.finishTurn(input, base, {
         response,
-        answerType: escalationOk ? "escalation" : "lookup",
+        answerType: "escalation",
         confidence: 0.9,
-        uncertaintyNote: escalationOk ? null : "Escalation creation failed",
+        uncertaintyNote: "Waiting for customer contact details to create the escalation record",
       });
     }
 
@@ -386,29 +405,49 @@ export class SupportOrchestrator {
     }
 
     // Restricted accounts always go to human support (escalation rules).
+    // Record the pending escalation through the SAME two-step flow as
+    // explicit escalations: log it, then ask for contact details on the
+    // next turn, so the escalation record ends up with real follow-up
+    // information instead of nulls (escalation-rules.md).
     if (String(result.account_status) === "restricted") {
-      const escalation = await client.callTool("create_escalation", {
-        customer_id: String(result.customer_id),
-        category: "account",
-        reason: `Account ${String(result.customer_id)} is restricted; customer requested account help`,
-      });
-      base.mcpCalls.push({ tool: "create_escalation", result: escalation });
-      const escalationOk = typeof escalation.escalation_id === "string" && escalation.escalation_id !== "";
-      base.escalationId = escalationOk ? String(escalation.escalation_id) : null;
-
-      const response =
-        (await this.phrase(
+      const existing = (await this.store.listEscalations(input.conversationId)).find(
+        (e) => e.category === "account" && e.status === "open",
+      );
+      if (existing && existing.user_email) {
+        base.escalationId = existing.escalation_id;
+        const response = await this.phrase(
           input,
           decision,
           null,
           base.mcpCalls,
-          `I can see the account, but it's currently restricted, and I'm not able to discuss the details over voice support. I'm handing this to our specialist team${escalationOk ? ", and they will follow up with you" : ""}.`,
-        )) ;
+          `I can see the account, but it's currently restricted, and I'm not able to discuss the details over voice support. This is already with our specialist team, and they will follow up with you.`,
+        );
+        return this.finishTurn(input, base, {
+          response,
+          answerType: "escalation",
+          confidence: 0.9,
+          uncertaintyNote: null,
+        });
+      }
+      await client.callTool("log_conversation_event", {
+        conversation_id: input.conversationId,
+        event_type: "escalation_pending_contact",
+        summary: `Account ${String(result.customer_id)} is restricted; customer requested account help`,
+        metadata: { category: "account" },
+      });
+
+      const response = await this.phrase(
+        input,
+        decision,
+        null,
+        base.mcpCalls,
+        `I can see the account, but it's currently restricted, and I'm not able to discuss the details over voice support. I'm handing this to our specialist team. Could I take your name and email so they can follow up with you?`,
+      );
       return this.finishTurn(input, base, {
         response,
-        answerType: escalationOk ? "escalation" : "lookup",
+        answerType: "escalation",
         confidence: 0.9,
-        uncertaintyNote: escalationOk ? null : "Escalation creation failed",
+        uncertaintyNote: "Waiting for customer contact details to create the escalation record",
       });
     }
 
@@ -530,6 +569,24 @@ export class SupportOrchestrator {
       priorEvent && typeof priorEvent.metadata.category === "string"
         ? priorEvent.metadata.category
         : "other";
+
+    // Nothing usable in the reply: re-ask instead of filing a contact-less
+    // escalation. The pending event stays, so the next message retries.
+    if (!name && !email) {
+      const response = await this.phrase(
+        input,
+        decision,
+        null,
+        [],
+        templates.escalationContactRequestResponse(),
+      );
+      return this.finishTurn(input, base, {
+        response,
+        answerType: "escalation",
+        confidence: 0.8,
+        uncertaintyNote: "Still waiting for the customer's name and email",
+      });
+    }
 
     const result = await client.callTool("create_escalation", {
       user_name: name ?? undefined,

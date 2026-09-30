@@ -22,7 +22,7 @@
     "seed": "npm run build -w @relaypay/store && npm run seed -w @relaypay/server",
     "mcp:smoke": "npm run build -w @relaypay/store && npm run build -w @relaypay/mcp-server && npm run smoke -w @relaypay/mcp-server",
     "vapi:setup": "node vapi/setup.mjs",
-    "test": "npm run build -w @relaypay/store && npm run test -w @relaypay/server && npm run test -w @relaypay/mcp-server",
+    "test": "npm run build -w @relaypay/store && npm run test -w @relaypay/store && npm run test -w @relaypay/server && npm run test -w @relaypay/mcp-server",
     "evaluate": "npm run build -w @relaypay/store && npm run build -w @relaypay/mcp-server && npm run build -w @relaypay/server && npm run build -w @relaypay/evaluation && npm run evaluate -w @relaypay/evaluation",
     "lint": "eslint packages mcp-server server evaluation --ext .ts"
   },

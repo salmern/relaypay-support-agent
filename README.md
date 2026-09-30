@@ -156,7 +156,7 @@ See [`vapi/README.md`](vapi/README.md). In short:
 ## Testing
 
 ```bash
-npm test             # 66 tests: store, MCP stdio, decision engine, orchestrator, API
+npm test             # 96 tests: store, MCP stdio, decision engine, orchestrator, API
 npm run evaluate     # 10/10 Week 6 scenarios → evidence table + stored records
 npm run mcp:smoke    # MCP tool contract check over real stdio
 ```
@@ -166,24 +166,36 @@ Details, per-scenario expectations and the manual Vapi procedure:
 
 ## Deployment
 
-Recommended minimal production setup:
+Deployed architecture (live):
 
-- **Frontend** (`web/`): static build (`npx vite build`) on Vercel or
-  Netlify. Set `VITE_VAPI_PUBLIC_KEY`, `VITE_VAPI_ASSISTANT_ID`,
-  `VITE_API_URL` at build time.
-- **Backend + MCP** (`server/`, `mcp-server/`): one Node service
-  (Fly.io / Render / Railway). `npm run build` then `node
-  server/dist/index.js`. The MCP server runs automatically as a stdio
-  subprocess of the backend. Set `DATA_PROVIDER=supabase`, the Supabase
-  vars, `ANTHROPIC_API_KEY`, `VAPI_SERVER_SECRET`, and a production
-  `CORS_ORIGINS` allowlist.
+- **Frontend** (`web/`): static build on Render (Static Site). Set
+  `VITE_VAPI_PUBLIC_KEY`, `VITE_VAPI_ASSISTANT_ID`, `VITE_API_URL` at
+  build time (Render → Environment, then clear-cache deploy — Vite bakes
+  them during the build).
+- **Backend + MCP** (`server/`, `mcp-server/`): one Node Web Service on
+  Render. Build `npm install && npm run build`, start
+  `node server/dist/index.js`, health check `/api/health`. The MCP server
+  runs automatically as a stdio subprocess of the backend. Set
+  `DATA_PROVIDER=supabase`, the Supabase vars, `VAPI_SERVER_SECRET`, a
+  production `CORS_ORIGINS` allowlist, and `DEBUG_TOKEN` (see below).
+  Optional: `ANTHROPIC_API_KEY` enables Claude phrasing; without it the
+  deterministic responder is used.
 - **Supabase**: apply the migration, seed once (`DATA_PROVIDER=supabase
   npm run seed`).
 - **Vapi**: point the assistant server URL at the deployed backend URL;
-  keep the secret in both places.
+  keep the secret in both places (`npm run vapi:setup` automates this).
 
-Deployment is prepared but **not executed** (no hosting credentials in
-this environment) — see "Remaining work" at the bottom of TESTING.md.
+### Debug endpoints & DEBUG_TOKEN
+
+`/api/debug/*` expose conversation transcripts, tool-call summaries and
+escalation contact details for observability. Set `DEBUG_TOKEN` in
+production: every debug request must then present a matching
+`x-debug-token` header, otherwise it is rejected with 401. Inspect the
+live system with:
+
+```bash
+curl -H "x-debug-token: $DEBUG_TOKEN" https://<backend>/api/debug/conversations
+```
 
 ## Troubleshooting
 

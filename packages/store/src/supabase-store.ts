@@ -165,6 +165,39 @@ export class SupabaseStore implements Store {
     return data as Escalation;
   }
 
+  async updateEscalationContact(
+    escalation_id: string,
+    contact: { user_name?: string | null; user_email?: string | null; preferred_time?: string | null },
+  ): Promise<Escalation | null> {
+    const patch: Record<string, string | null | boolean> = {};
+    if (contact.user_name !== undefined && contact.user_name !== null) patch.user_name = contact.user_name;
+    if (contact.user_email !== undefined && contact.user_email !== null) patch.user_email = contact.user_email;
+    if (contact.preferred_time !== undefined && contact.preferred_time !== null) {
+      patch.preferred_time = contact.preferred_time;
+      patch.call_booked = true;
+    }
+    if (Object.keys(patch).length === 0) return this.getEscalation(escalation_id);
+    const { data, error } = await this.client
+      .from("escalations")
+      .update(patch)
+      .eq("escalation_id", escalation_id)
+      .select()
+      .single();
+    if (error) throw new Error(`Supabase updateEscalationContact failed: ${error.message}`);
+    return (data as Escalation | null) ?? null;
+  }
+
+  async getEscalation(escalation_id: string): Promise<Escalation | null> {
+    const { data, error } = await this.client
+      .from("escalations")
+      .select("*")
+      .eq("escalation_id", escalation_id)
+      .limit(1);
+    if (error) throw new Error(`Supabase getEscalation failed: ${error.message}`);
+    const row = (data ?? [])[0] as Escalation | undefined;
+    return row ?? null;
+  }
+
   async addEvaluation(record: Omit<EvaluationRecord, "created_at">): Promise<EvaluationRecord> {
     const row = { ...record, created_at: new Date().toISOString() };
     const { data, error } = await this.client.from("evaluations").insert(row).select().single();
