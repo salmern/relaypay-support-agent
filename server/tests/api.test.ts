@@ -64,6 +64,24 @@ describe("health", () => {
   });
 });
 
+describe("service card and webhook explainer", () => {
+  it("serves a friendly root page instead of a 404", async () => {
+    const res = await app.inject({ method: "GET", url: "/" });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["content-type"]).toContain("text/html");
+    expect(res.body).toContain("RelayPay Support Agent API");
+    expect(res.body).toContain("/api/health");
+  });
+
+  it("explains the webhook contract on GET /vapi/webhook instead of 404", async () => {
+    const res = await app.inject({ method: "GET", url: "/vapi/webhook" });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { ok: boolean; message: string };
+    expect(body.ok).toBe(true);
+    expect(body.message).toContain("POST");
+  });
+});
+
 describe("text channel", () => {
   it("rejects empty messages", async () => {
     const created = await app.inject({

@@ -51,6 +51,42 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
     };
   });
 
+  // ---------------- Root service card ----------------
+
+  // Browsers land here when someone opens the backend URL directly.
+  // Return a small human-readable card (200) instead of Fastify's 404.
+  app.get("/", async (_request, reply) => {
+    reply.type("text/html; charset=utf-8");
+    return [
+      "<!doctype html><html><head><meta charset=\"utf-8\" /><title>RelayPay Support Agent</title>",
+      "<style>body{font-family:system-ui,sans-serif;max-width:40rem;margin:4rem auto;padding:0 1rem;color:#1f2430;line-height:1.6}",
+      "h1{font-size:1.4rem;margin-bottom:.25rem}code{background:#f2f4f8;padding:.1rem .35rem;border-radius:4px}",
+      "a{color:#2456d6}</style></head><body>",
+      "<h1>RelayPay Support Agent API</h1>",
+      "<p>The backend is up and running. This service powers the RelayPay customer support agent (voice and text).</p>",
+      "<ul>",
+      "<li>Health check: <a href=\"/api/health\"><code>GET /api/health</code></a></li>",
+      "<li>Text channel: <code>POST /api/conversations/:id/turns</code></li>",
+      "<li>Voice channel: <code>POST /vapi/webhook</code> (called by Vapi; GET here returns this notice)</li>",
+      "<li>Debug endpoints: <code>GET /api/debug/conversations</code> (requires the <code>x-debug-token</code> header in production)</li>",
+      "</ul>",
+      "<p>Customer-facing voice interface: <a href=\"https://relaypay-support-agent-1.onrender.com\">relaypay-support-agent-1.onrender.com</a></p>",
+      "</body></html>",
+    ].join("");
+  });
+
+  // Vapi only ever POSTs here. A plain GET (someone opening the URL in a
+  // browser) used to fall through to Fastify's "Route GET:/vapi/webhook
+  // not found" 404, which looks like a broken endpoint; answer with a
+  // friendly explainer instead. This does not affect the Vapi contract.
+  app.get("/vapi/webhook", async () => {
+    return {
+      ok: true,
+      message: "This endpoint is the Vapi voice webhook. It accepts POST requests signed with the x-vapi-secret header; GET is not part of the contract.",
+      hint: "Use POST /vapi/webhook with a tool-calls or end-of-call-report message body.",
+    };
+  });
+
   // ---------------- Text channel ----------------
 
   app.post("/api/conversations", async (request, reply) => {

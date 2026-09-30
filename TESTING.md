@@ -3,7 +3,7 @@
 ## Automated tests
 
 ```bash
-npm test          # all 114 tests across packages
+npm test          # all 116 tests across packages
 ```
 
 | Suite | Count | What it actually verifies |

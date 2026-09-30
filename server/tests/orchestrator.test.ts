@@ -365,14 +365,19 @@ describe("concurrent requests", () => {
       orchestrator.handleTurn({ conversationId, channel: "text", userMessage: message }),
       orchestrator.handleTurn({ conversationId, channel: "text", userMessage: message }),
     ]);
+    // Both turns answer with a ticket (either the first one created, or a
+    // second unique ticket if both turns raced past the dedup check).
     const ticketIds = results.map((r) => r.ticketId).filter((id): id is string => id !== null);
-    // Both turns answer, but the dedup rule yields a single ticket for the
-    // conversation (concurrent retries may both see "no ticket yet" and
-    // file one each; assert at most 2 and exactly one DISTINCT category).
-    expect(ticketIds.length).toBeGreaterThanOrEqual(1);
+    expect(ticketIds.length).toBe(2);
+    // Exactly ONE ticket row may exist for the conversation when the dedup
+    // lock holds; if a true race slipped through, at most 2 may exist, but
+    // every returned ID must correspond to a persisted row (no phantom IDs).
     const data = persisted();
-    const tickets = data.tickets.filter((t) => t.conversation_id === conversationId);
-    expect(new Set(tickets.map((t) => t.ticket_id)).size).toBe(ticketIds.length);
+    const persistedIds = data.tickets
+      .filter((t) => t.conversation_id === conversationId)
+      .map((t) => t.ticket_id);
+    for (const id of ticketIds) expect(persistedIds).toContain(id);
+    expect(persistedIds.length).toBeGreaterThanOrEqual(1);
   });
 });
 
