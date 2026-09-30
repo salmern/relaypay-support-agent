@@ -130,7 +130,10 @@ describe("Vapi webhook", () => {
     const body = res.json() as { results: Array<{ toolCallId: string; result: string }> };
     expect(body.results).toHaveLength(1);
     expect(body.results[0]!.toolCallId).toBe("tc-9001");
-    expect(body.results[0]!.result).toContain("TXN-9001");
+    // Voice responses are formatted for speech: no hyphenated references
+    // (read as "minus" by TTS) and amounts spelled in words.
+    expect(body.results[0]!.result).toContain("T X N nine zero zero one");
+    expect(body.results[0]!.result).toContain("two thousand four hundred US dollars");
     expect(body.results[0]!.result).toMatch(/processing/i);
     // The voice conversation was logged under the Vapi call id
     const conversation = await store.getConversation("call-api-test");
@@ -187,7 +190,8 @@ describe("Vapi webhook", () => {
     });
     expect(res.statusCode).toBe(200);
     const body = res.json() as { result: string };
-    expect(body.result).toContain("TXN-9001");
+    expect(body.result).toContain("T X N nine zero zero one");
+    expect(body.result).toContain("two thousand four hundred US dollars");
     expect(body.result).toMatch(/processing/i);
   });
 

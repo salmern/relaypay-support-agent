@@ -3,7 +3,7 @@
 ## Automated tests
 
 ```bash
-npm test          # all 96 tests across packages
+npm test          # all 112 tests across packages
 ```
 
 | Suite | Count | What it actually verifies |
@@ -11,8 +11,9 @@ npm test          # all 96 tests across packages
 | `packages/store` | 21 | KB chunking completeness; seed CSV parsing (stable IDs, empty→null); retrieval ranking incl. Scenario-8 ranking + FAQ-question routing; mock-store idempotent seeding, lookups, record persistence |
 | `mcp-server` | 12 | Real stdio MCP client: tools/list = exactly the 6 required tools; seeded lookup values (TXN-9001 processing, PAY-7002 review); found:false without crashing; ticket + escalation actually persisted; duplicate prevention; audit row per call |
 | `server/decision-engine` | 23 | Every decision rule: escalation triggers + categories, clarify-not-guess, guarantee→knowledge, ticket-over-lookup, reference/identity extraction, spoken-reference normalization ("TXN-nine thousand and 1" → TXN-9001) |
-| `server/orchestrator` | 24 | Scenarios 1–8 + 10 end-to-end against real MCP subprocesses: deep assertions on responses AND persisted records (turns, retrievals, tool calls, tickets, escalations, events); two-step escalations with contact collection; duplicate escalation/ticket prevention; PII masking; escalated conversation closing; store-outage error handling |
+| `server/orchestrator` | 27 | Scenarios 1–8 + 10 end-to-end against real MCP subprocesses: deep assertions on responses AND persisted records (turns, retrievals, tool calls, tickets, escalations, events); two-step escalations with contact collection; duplicate escalation/ticket prevention; PII masking; escalated conversation closing; store-outage error handling; voice responses formatted for TTS (spoken amounts/references) while the audit trail keeps canonical text |
 | `server/api` | 16 | Text channel; Vapi webhook contract (`tool-calls` + legacy `function-call` → spoken result, `end-of-call-report` → conversation closed), secret rejection, CORS allowlist, debug endpoints incl. DEBUG_TOKEN auth guard |
+| `server/speech` | 13 | Voice formatting helpers: amounts in words ("2400 USD" → "two thousand four hundred US dollars"), currency-code expansion, hyphen-free references ("TXN-9001" → "T X N nine zero zero one"), pass-through of plain text |
 
 Not counted above: `npm run mcp:smoke` (independent MCP contract check).
 

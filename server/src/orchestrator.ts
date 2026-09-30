@@ -23,6 +23,7 @@ import { RelayPayMcpClient } from "./agent/mcp-client.js";
 import { runClaudeAgent } from "./agent/claude-runner.js";
 import { buildTurnPrompt } from "./agent/system-prompt.js";
 import * as templates from "./agent/response-templates.js";
+import { forSpeech } from "./agent/speech.js";
 
 export interface TurnInput {
   conversationId: string;
@@ -714,9 +715,17 @@ export class SupportOrchestrator {
       );
     }
 
+    // Voice responses are formatted for text-to-speech: amounts are read
+    // as words ("two thousand four hundred US dollars") and references
+    // drop the hyphen ("T X N nine zero zero one") so the voice does not
+    // say "minus". Text responses keep the canonical written forms, and
+    // the persisted assistant_response above stores the canonical text so
+    // the audit trail stays readable.
+    const response = input.channel === "voice" ? forSpeech(outcome.response) : outcome.response;
+
     return {
       conversationId: input.conversationId,
-      response: outcome.response,
+      response,
       answerType: outcome.answerType,
       confidence: outcome.confidence,
       uncertaintyNote: outcome.uncertaintyNote,

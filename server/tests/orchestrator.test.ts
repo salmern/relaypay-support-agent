@@ -49,7 +49,7 @@ afterEach(async () => {
 function persisted() {
   return JSON.parse(readFileSync(storePath, "utf8")) as {
     conversations: unknown[];
-    turns: Array<{ conversation_id: string; answer_type: string }>;
+    turns: Array<{ conversation_id: string; answer_type: string; assistant_response: string }>;
     retrieval_logs: Array<{ conversation_id: string | null; query: string; knowledge_chunks: string[]; source_title: string }>;
     tool_calls: Array<{ tool_name: string; status: string; conversation_id: string | null }>;
     tickets: Array<{ ticket_id: string; category: string; priority: string; customer_id: string | null; transaction_id: string | null; conversation_id: string }>;
@@ -338,5 +338,38 @@ describe("error handling", () => {
       if (previousMockPath === undefined) delete process.env.MOCK_STORE_PATH;
       else process.env.MOCK_STORE_PATH = previousMockPath;
     }
+  });
+});
+
+describe("voice speech formatting", () => {
+  it("speaks amounts and references in words on the voice channel", async () => {
+    const result = await orchestrator.handleTurn({
+      conversationId,
+      channel: "voice",
+      userMessage: "Can you check transaction TXN-9001?",
+    });
+    expect(result.response).not.toContain("TXN-9001");
+    expect(result.response).not.toContain("2400 USD");
+    expect(result.response).toContain("T X N nine zero zero one");
+    expect(result.response).toContain("two thousand four hundred US dollars");
+  });
+
+  it("keeps the canonical written form in the persisted audit trail", async () => {
+    await orchestrator.handleTurn({
+      conversationId,
+      channel: "voice",
+      userMessage: "Can you check transaction TXN-9001?",
+    });
+    const data = persisted();
+    const voiceTurns = data.turns.filter((t) => t.conversation_id === conversationId);
+    expect(voiceTurns).toHaveLength(1);
+    expect(voiceTurns[0]!.assistant_response).toContain("TXN-9001");
+    expect(voiceTurns[0]!.assistant_response).toContain("2400 USD");
+  });
+
+  it("keeps canonical amounts and references on the text channel", async () => {
+    const result = await turn("Can you check transaction TXN-9001?");
+    expect(result.response).toContain("TXN-9001");
+    expect(result.response).toContain("2400 USD");
   });
 });

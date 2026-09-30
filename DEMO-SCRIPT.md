@@ -25,8 +25,9 @@ npm run dev:web      # terminal 2
 ## 2. Transaction lookup (0:45–1:30)
 
 - Ask: **"Can you check transaction TXN-9001?"**
-- Expect: "outgoing payout of 2400 USD… status is processing… normal
-  expected window."
+- Expect: "outgoing payout of two thousand four hundred US dollars…
+  status is processing… normal expected window." (Voice responses say
+  amounts and references in words; text chat shows "2400 USD".)
 - (Optional) Ask: **"What is happening with payout PAY-7002?"**
 - Expect: pending review + "handing this to our specialist team".
 
