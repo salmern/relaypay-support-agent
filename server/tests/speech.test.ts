@@ -35,11 +35,11 @@ describe("spokenMoney", () => {
 });
 
 describe("spokenReference", () => {
-  it("spells the seeded transaction reference without the hyphen", () => {
+  it("spells the seeded transaction reference digit-by-digit", () => {
     expect(spokenReference("TXN-9001")).toBe("T X N nine zero zero one");
   });
 
-  it("spells payout references", () => {
+  it("spells payout references digit-by-digit", () => {
     expect(spokenReference("PAY-7002")).toBe("P A Y seven zero zero two");
   });
 
