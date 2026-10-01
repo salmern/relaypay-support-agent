@@ -156,7 +156,7 @@ See [`vapi/README.md`](vapi/README.md). In short:
 ## Testing
 
 ```bash
-npm test             # 126 tests: store, MCP stdio, decision engine, orchestrator, speech formatting, API
+npm test             # 127 tests: store, MCP stdio, decision engine, orchestrator, speech formatting, API
 npm run evaluate     # 10/10 Week 6 scenarios → evidence table + stored records
 npm run mcp:smoke    # MCP tool contract check over real stdio
 ```

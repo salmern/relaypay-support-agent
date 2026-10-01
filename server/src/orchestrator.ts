@@ -190,6 +190,23 @@ export class SupportOrchestrator {
       return this.completeEscalation(input);
     }
 
+    // A bare digit run ("9 0 0 1.") right after the payment-clarify
+    // question is the customer reading out a reference without saying
+    // the prefix — treat it as a transaction lookup instead of a new
+    // unsupported question (observed live on voice).
+    const clarifyQuestion = /outgoing payout, an incoming transfer/i.test(lastAssistant);
+    const bareDigits = input.userMessage.trim().match(/^([\d\s.,-]{3,12})[.!]?\s*$/);
+    if (clarifyQuestion && bareDigits) {
+      const digits = bareDigits[1]!.replace(/\D/g, "");
+      if (digits.length >= 3) {
+        input = {
+          ...input,
+          userMessage: `Check transaction TXN-${digits}`,
+          rawTranscript: input.rawTranscript ?? input.userMessage,
+        };
+      }
+    }
+
     // The decline response offers follow-up ("Would you like me to arrange
     // for our support team to follow up with you?"). A "yes please" must
     // START that escalation — answering it as a new question looped back

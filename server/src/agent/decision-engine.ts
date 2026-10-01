@@ -277,7 +277,9 @@ function isConfidentSpokenReference(tokens: string[]): boolean {
 const NUMBER_OR_AND = new RegExp(`^(?:${NUMBER_WORD_PATTERN}|and)$`, "i");
 
 function canonicalPrefix(prefix: string): "TXN" | "PAY" | "CUS" {
-  const upper = prefix.toUpperCase();
+  // Spoken prefixes arrive letter-by-letter ("t x n"); collapse before
+  // matching so they canonicalize the same as fused ones ("txn").
+  const upper = prefix.replace(/\s+/g, "").toUpperCase();
   if (upper.startsWith("TXN")) return "TXN";
   if (upper.startsWith("CUS")) return "CUS";
   return "PAY"; // "pay" and "payout"
@@ -288,8 +290,11 @@ export function normalizeVoiceReferences(text: string): string {
   // sentence boundary or a trailing courtesy word ("please"). The lazy
   // quantifier keeps separators OUT of the match, so spacing and other
   // references in the sentence are never consumed or merged.
+  // Deepgram sometimes spells the prefix letter-by-letter ("t x n 9 0 0
+  // 1") instead of fusing it ("TXN 9 0 0 1"), so the alternation accepts
+  // both shapes. Order matters: fused forms first, then spaced ones.
   const refRegex = new RegExp(
-    "\\b(txn|payout|pay|cus)\\b[\\s:-]*([^.,;!?]*?)(?=[.,;!?]|$|\\b(?:please|thanks)\\b)",
+    "\\b(txn|payout|pay|cus|t\\s?x\\s?n|p\\s?a\\s?y(?:\\s?o\\s?u\\s?t)?|c\\s?u\\s?s)\\b[\\s:-]*([^.,;!?]*?)(?=[.,;!?]|$|\\b(?:please|thanks)\\b)",
     "gi",
   );
   return text.replace(refRegex, (match: string, prefix: string, tail: string) => {
@@ -308,9 +313,9 @@ export function normalizeVoiceReferences(text: string): string {
     // since "payout" is sentence wording rather than part of the ID.
     const trailing = match.match(/\s*$/)?.[0] ?? "";
     const reference = `${canonicalPrefix(prefix)}-${parsed}`;
-    const spoken = prefix.toLowerCase();
+    const spoken = prefix.toLowerCase().replace(/\s+/g, "");
     return spoken === "pay" || spoken === "payout"
-      ? `${prefix} ${reference}${trailing}`
+      ? `${spoken} ${reference}${trailing}`
       : `${reference}${trailing}`;
   });
 }

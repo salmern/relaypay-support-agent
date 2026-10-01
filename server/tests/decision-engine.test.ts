@@ -171,4 +171,14 @@ describe("normalizeVoiceReferences", () => {
     const text = "I need help with a payment to one of my vendors";
     expect(normalizeVoiceReferences(text)).toBe(text);
   });
+
+  it("accepts letter-by-letter prefixes (live STT shape: t x n 9 0 0 1)", () => {
+    expect(normalizeVoiceReferences("Can you check transaction t x n 9 0 0 1? For me?")).toBe(
+      "Can you check transaction TXN-9001? For me?",
+    );
+    expect(normalizeVoiceReferences("I said t x n 9 0 0 1. T x n 9 0 0 1.")).toBe(
+      "I said TXN-9001. TXN-9001.",
+    );
+    expect(normalizeVoiceReferences("p a y 7 0 0 2")).toBe("pay PAY-7002");
+  });
 });
