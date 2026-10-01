@@ -226,6 +226,45 @@ describe("Vapi webhook", () => {
     const body = res.json() as { results: Array<{ result: string }> };
     expect(body.results[0]!.result).toMatch(/catch|again/i);
   });
+
+  it("keeps one conversation across turns when the call id is nested in message.call (live bug)", async () => {
+    // Vapi's current tool-calls payload carries the call id inside
+    // message.call.id, not top-level call. Reading only the top-level id
+    // made every utterance a NEW conversation: the escalation contact ask
+    // was never seen again, so the name/email turn declined (observed
+    // live — turns persisted under generated vapi-* fallback ids).
+    const post = (transcript: string, toolCallId: string) =>
+      app.inject({
+        method: "POST",
+        url: "/vapi/webhook",
+        headers: { "x-vapi-secret": "test-secret" },
+        payload: {
+          message: {
+            type: "tool-calls",
+            call: { id: "call-nested-77" },
+            toolCallList: [{ id: toolCallId, function: { name: "support_agent", arguments: { transcript } } }],
+          },
+        },
+      });
+
+    const first = await post("My account was restricted and nobody is helping me.", "tc-n1");
+    expect(first.statusCode).toBe(200);
+    const firstBody = first.json() as { results: Array<{ result: string }> };
+    expect(firstBody.results[0]!.result).toMatch(/name and email|specialist/i);
+
+    const second = await post("My name is Salman and my email is salman at relaypay dot com", "tc-n2");
+    expect(second.statusCode).toBe(200);
+    const secondBody = second.json() as { results: Array<{ result: string }> };
+    // Both turns must land in the SAME conversation, so the contact ask
+    // completes into a created escalation instead of declining.
+    expect(secondBody.results[0]!.result).toMatch(/support representative will follow up/i);
+    expect(secondBody.results[0]!.result).not.toMatch(/don't have approved information/i);
+
+    const conversation = await store.getConversation("call-nested-77");
+    expect(conversation?.channel).toBe("voice");
+    const turns = await store.listTurns("call-nested-77");
+    expect(turns).toHaveLength(2);
+  });
 });
 
 describe("debug endpoints", () => {

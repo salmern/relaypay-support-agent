@@ -39,14 +39,14 @@ npm run dev:server          # backend on :8787 (seeds the store on first run in 
 npm run dev:web             # web app on :5173
 ```
 
-To operate: open the web app → **Start support call**, or POST to `/api/conversations/:id/turns` for text. To reconfigure the voice assistant: `npm run vapi:setup`. To verify a deployment: `curl https://<backend>/api/health` (expect 200) and `curl https://<backend>/api/debug/conversations` without the header (expect 401 when DEBUG_TOKEN is set). To investigate a conversation: `GET /api/debug/conversations/:id` with the `x-debug-token` header, or the Supabase tables (`conversations`, `conversation_turns`, `tool_calls`, `escalations`, `retrieval_logs`, `conversation_events`). To re-run behavior checks: `npm run evaluate` (10 scenarios) and `npm test` (123 tests).
+To operate: open the web app → **Start support call**, or POST to `/api/conversations/:id/turns` for text. To reconfigure the voice assistant: `npm run vapi:setup`. To verify a deployment: `curl https://<backend>/api/health` (expect 200) and `curl https://<backend>/api/debug/conversations` without the header (expect 401 when DEBUG_TOKEN is set). To investigate a conversation: `GET /api/debug/conversations/:id` with the `x-debug-token` header, or the Supabase tables (`conversations`, `conversation_turns`, `tool_calls`, `escalations`, `retrieval_logs`, `conversation_events`). To re-run behavior checks: `npm run evaluate` (10 scenarios) and `npm test` (124 tests).
 
 ## 5. Artefacts
 
 - Repository: https://github.com/salmern/relaypay-support-agent
 - Voice interface: https://relaypay-support-agent-1.onrender.com (phone calling not supported on this account)
 - Backend endpoint: https://relaypay-support-agent.onrender.com (`/vapi/webhook`, `/api/health`)
-- Test evidence: `deliverables/3-testing-evidence.md` (123 automated tests, evaluate 10/10)
+- Test evidence: `deliverables/3-testing-evidence.md` (124 automated tests, evaluate 10/10)
 - Video walkthrough: `deliverables/4-video-script.md` (record per script)
 - Data documents: seed data in `assets/seed-data/*.csv` and KB in `assets/relaypay-knowledge-base.md` (unchanged this cycle; schema in `assets/supabase-schema-and-seed-data.md`)
 

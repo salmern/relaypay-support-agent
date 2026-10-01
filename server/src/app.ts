@@ -162,12 +162,27 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
           function?: { name?: string; arguments?: Record<string, unknown> };
         }>;
         functionCall?: { name?: string; parameters?: Record<string, unknown> };
+        call?: { id?: string };
       };
       call?: { id?: string };
     } | undefined;
 
     const messageType = body?.message?.type ?? "";
-    const callId = body?.call?.id ?? `vapi-${Date.now().toString(36)}`;
+    // The call id scopes the whole voice conversation. Vapi sends it in
+    // two places across payload versions: top-level `call.id` and
+    // `message.call.id` (the current tool-calls shape). Reading only one
+    // silently starts a NEW conversation per utterance — every multi-turn
+    // flow (clarify loops, contact collection) then breaks while
+    // single-turn answers still look fine (observed live: turns persisted
+    // under generated vapi-* fallback ids).
+    const topLevelCallId = body?.call?.id;
+    const nestedCallId = body?.message?.call?.id;
+    const callId = topLevelCallId ?? nestedCallId ?? `vapi-${Date.now().toString(36)}`;
+    if (!topLevelCallId && !nestedCallId) {
+      process.stderr.write(
+        `[vapi] webhook request without call.id — using per-request fallback ${callId} (multi-turn flows will fragment)\n`,
+      );
+    }
 
     switch (messageType) {
       // Assistant custom tool invoked by Vapi: run one full agent turn.
