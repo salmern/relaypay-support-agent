@@ -36,13 +36,16 @@
           "url": "{{VAPI_SERVER_URL}}/vapi/webhook",
           "secret": "{{VAPI_SERVER_SECRET}}"
         }
+      },
+      {
+        "type": "endCall"
       }
     ]
   },
   "transcriber": {
     "provider": "deepgram",
     "model": "nova-2",
-    "language": "multi"
+    "language": "en"
   },
   "voice": {
     "provider": "11labs",

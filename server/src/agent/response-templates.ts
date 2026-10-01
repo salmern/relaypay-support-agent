@@ -94,6 +94,10 @@ export function toolErrorResponse(action: string): string {
   );
 }
 
+export function farewellResponse(): string {
+  return "Thank you for contacting RelayPay. Goodbye.";
+}
+
 export function greetingResponse(): string {
   return (
     "Hello, you're speaking with RelayPay support. I can help with payments, payouts, " +

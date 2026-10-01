@@ -414,6 +414,28 @@ describe("voice speech formatting", () => {
   });
 });
 
+describe("conversation courtesies", () => {
+  it("closes politely when the customer says no thanks after an escalation (text transcript bug)", async () => {
+    await turn("My account was restricted and nobody is helping me.");
+    await turn("My name is Efua, email efua@accrastack.example");
+    const third = await turn("No thank you");
+    expect(third.response).toMatch(/thank you for contacting|goodbye/i);
+    expect(third.response).not.toMatch(/don't have approved information/i);
+  });
+
+  it("starts the escalation when the customer accepts the follow-up offer (voice loop bug)", async () => {
+    const first = await turn("What is the airspeed velocity of an unladen swallow?");
+    expect(first.answerType).toBe("decline");
+    const second = await turn("yes please");
+    expect(second.answerType).toBe("escalation");
+    expect(second.response).toMatch(/name and email|specialist|handing/i);
+    // And a polite decline of that offer closes the call instead of
+    // looping back to the same decline template.
+    const third = await turn("No.");
+    expect(third.response).toMatch(/thank you for contacting|goodbye/i);
+  });
+});
+
 describe("fee question routing", () => {
   it("answers fee questions from knowledge even with singular 'payment' (voice STT garble)", async () => {
     const result = await turn("What fees does RelayPay charge for international payment?");
@@ -447,11 +469,13 @@ describe("voice escalation flow", () => {
     );
     writeFileSync(storePath, JSON.stringify(data));
 
-    // Turn 2: STT wrote the email WITHOUT the @ ("SalmanX5 dot com").
+    // Turn 2: the exact live utterance — STT wrote the email WITHOUT
+    // the @ ("salmanx550gmail dot com"). The spoken-email parser must
+    // recover salmanx550@gmail.com.
     const second = await orchestrator.handleTurn({
       conversationId,
       channel: "voice",
-      userMessage: "My name is Salman Muhammad and my email is SalmanX5 dot com",
+      userMessage: "My name is Salman and my email is salmanx550gmail dot com",
     });
     expect(second.answerType).toBe("escalation");
     expect(second.escalationId).toMatch(/^ESC-/);
@@ -459,6 +483,20 @@ describe("voice escalation flow", () => {
     const escalations = persisted().escalations.filter((e) => e.conversation_id === conversationId);
     expect(escalations).toHaveLength(1);
     expect(escalations[0]!.category).toBe("other");
-    expect(escalations[0]!.user_name).toBeTruthy();
+    expect(escalations[0]!.user_name).toBe("Salman");
+    expect(escalations[0]!.user_email).toBe("salmanx550@gmail.com");
+  });
+
+  it("keeps the voice answer short by dropping the source citation", async () => {
+    const result = await orchestrator.handleTurn({
+      conversationId,
+      channel: "voice",
+      userMessage: "What fees does RelayPay charge for international payments?",
+    });
+    expect(result.response).toMatch(/fees vary/i);
+    expect(result.response).not.toMatch(/this comes from|approved support guidelines/i);
+    // The audit trail keeps the canonical, fully-cited response.
+    const turns = persisted().turns.filter((t) => t.conversation_id === conversationId);
+    expect(turns[0]!.assistant_response).toMatch(/this comes from our approved support guidelines/i);
   });
 });

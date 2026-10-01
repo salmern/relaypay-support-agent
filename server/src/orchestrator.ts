@@ -122,6 +122,24 @@ export class SupportOrchestrator {
     // is answering our ask for name/email.
     const pendingEscalation = await this.findPendingEscalation(input.conversationId);
     if (pendingEscalation) {
+      // A farewell here means the customer is refusing to give contact
+      // details — close politely instead of filing a contact-less
+      // escalation or re-asking.
+      if (FAREWELL_PATTERN.test(input.userMessage) || /^\s*(no|nope|nah)\s*[.!]?\s*$/i.test(input.userMessage)) {
+        const decision: Decision = {
+          action: "answer",
+          intent: "knowledge",
+          rationale: "Customer declined to continue the escalation — closing pleasantry",
+        };
+        const base = newBase(decision);
+        const response = await this.phrase(input, decision, null, [], templates.farewellResponse());
+        return this.finishTurn(input, base, {
+          response,
+          answerType: "knowledge",
+          confidence: 0.95,
+          uncertaintyNote: null,
+        });
+      }
       // Stale-marker heal: if an escalation record already holds contact
       // details but the pending event was never cleared (e.g. its write
       // was lost mid-call), finish the handover instead of dead-ending
@@ -170,6 +188,58 @@ export class SupportOrchestrator {
     const givingContact = /\b(my name is|name is|my email|email is|@|dot com|reach me at)\b/i.test(input.userMessage);
     if (!pendingEscalation && askedForContact && givingContact) {
       return this.completeEscalation(input);
+    }
+
+    // The decline response offers follow-up ("Would you like me to arrange
+    // for our support team to follow up with you?"). A "yes please" must
+    // START that escalation — answering it as a new question looped back
+    // to the same decline (observed live on voice). A bare "No." there
+    // politely ends the call instead of declining again.
+    const askedForFollowUp = /would you like me to arrange for our support team to follow up/i.test(lastAssistant);
+    const bareNegative = /^\s*(no|nope|nah)\s*[.!]?\s*$/i.test(input.userMessage);
+    if (!pendingEscalation && askedForFollowUp) {
+      if (AFFIRMATIVE_PATTERN.test(input.userMessage)) {
+        return this.beginEscalation(input, {
+          action: "escalate",
+          intent: "escalation",
+          escalationCategory: "other",
+          rationale: "Customer accepted the follow-up offer",
+        });
+      }
+      if (bareNegative) {
+        const decision: Decision = {
+          action: "answer",
+          intent: "knowledge",
+          rationale: "Customer declined the follow-up offer — closing pleasantry",
+        };
+        const base = newBase(decision);
+        const response = await this.phrase(input, decision, null, [], templates.farewellResponse());
+        return this.finishTurn(input, base, {
+          response,
+          answerType: "knowledge",
+          confidence: 0.95,
+          uncertaintyNote: null,
+        });
+      }
+    }
+
+    // Farewells end the conversation; they are never new support requests.
+    // Without this, "No thank you" after "anything else?" fell through to
+    // the decline template (observed live on voice and text).
+    if (previousTurns.length > 0 && FAREWELL_PATTERN.test(input.userMessage)) {
+      const decision: Decision = {
+        action: "answer",
+        intent: "knowledge",
+        rationale: "Customer farewell — closing pleasantry",
+      };
+      const base = newBase(decision);
+      const response = await this.phrase(input, decision, null, [], templates.farewellResponse());
+      return this.finishTurn(input, base, {
+        response,
+        answerType: "knowledge",
+        confidence: 0.95,
+        uncertaintyNote: null,
+      });
     }
 
     // Collect identity info from this message or earlier turns.
@@ -797,13 +867,21 @@ export class SupportOrchestrator {
       );
     }
 
-    // Voice responses are formatted for text-to-speech: amounts are read
-    // as words ("two thousand four hundred US dollars") and references
-    // drop the hyphen ("T X N nine zero zero one") so the voice does not
-    // say "minus". Text responses keep the canonical written forms, and
-    // the persisted assistant_response above stores the canonical text so
-    // the audit trail stays readable.
-    const response = input.channel === "voice" ? forSpeech(outcome.response) : outcome.response;
+    // Voice responses are formatted for speech: the retrieval-source
+    // citation ("This comes from our approved support guidelines on …")
+    // is audit metadata — it stays in the persisted transcript and on the
+    // text channel, but the voice reads only the answer so replies stay
+    // short and natural. Amounts are read as words ("two thousand four
+    // hundred US dollars") and references drop the hyphen ("T X N nine
+    // zero zero one") so the voice does not say "minus".
+    let response = outcome.response;
+    if (input.channel === "voice") {
+      response = response
+        .replace(/\s*This comes from our approved support guidelines on [^.]+\.\s*/gi, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+      response = forSpeech(response);
+    }
 
     return {
       conversationId: input.conversationId,
@@ -833,17 +911,64 @@ export class SupportOrchestrator {
   }
 }
 
+// --- Farewells and affirmations -----------------------------------------
+
+const FAREWELL_PATTERN =
+  /\b(no,? (thank you|thanks)|no thanks?|no goodbye|goodbye|bye( bye)?|that('s| is) all|that will be all|nothing else)\b/i;
+const AFFIRMATIVE_PATTERN =
+  /^\s*(y|yes|yeah|yep|yup|sure|ok|okay|please|of course|correct|right|affirmative|go ahead|sounds good)\b/i;
+
+// --- Spoken-email extraction ---------------------------------------------
+
+const LITERAL_EMAIL = /[\w.+-]+@[\w-]+\.[\w.-]+/;
+const EMAIL_TLDS = "com|net|org|io|co|ai|dev|us|uk|ca|me|ng|ke|gh|za|tv";
+// "salman at relaypay dot com" — the final group must be a TLD so
+// "tomorrow at nine dot thirty" (callback times) never matches.
+const SPOKEN_AT_EMAIL = new RegExp(
+  `\\b([a-z0-9][\\w.-]*)\\s+at\\s+([a-z][\\w-]*)\\s+(?:dot|\\.)\\s*(${EMAIL_TLDS})\\b`,
+  "i",
+);
+// "salmanx550gmail dot com" / "salmanx550 gmail dot com" — local part and
+// known provider fused by speech-to-text or separated by a pause.
+const SPOKEN_PROVIDER_EMAIL = new RegExp(
+  `\\b([a-z0-9][\\w.-]*?)\\s*(gmail|googlemail|hotmail|yahoo|outlook|icloud|protonmail)\\s+(?:dot|\\.)\\s*(${EMAIL_TLDS})\\b`,
+  "i",
+);
+// "jdoe acmecorp dot com" — generic two-word address with a TLD ending.
+const SPOKEN_GENERIC_EMAIL = new RegExp(
+  `\\b([a-z0-9][\\w.-]{2,})\\s+([a-z][\\w-]{2,})\\s+(?:dot|\\.)\\s*(${EMAIL_TLDS})\\b`,
+  "i",
+);
+
+/**
+ * Reads an email out of a message, whether it was typed ("sal@x.com") or
+ * spoken ("sal at x dot com", "salmanx550gmail dot com"). Speech-to-text
+ * writes spoken addresses WITHOUT the @, so the old literal-only regex
+ * returned null and the escalation flow lost the address (observed live).
+ * Returns the matched source so callers can strip it from the name.
+ */
+function extractSpokenEmail(message: string): { email: string; source: string } | null {
+  const literal = message.match(LITERAL_EMAIL);
+  if (literal) return { email: literal[0].toLowerCase(), source: literal[0] };
+  for (const pattern of [SPOKEN_AT_EMAIL, SPOKEN_PROVIDER_EMAIL, SPOKEN_GENERIC_EMAIL]) {
+    const match = message.match(pattern);
+    if (match) {
+      return {
+        email: `${match[1]}@${match[2]}.${match[3]}`.toLowerCase(),
+        source: match[0],
+      };
+    }
+  }
+  return null;
+}
+
+const CONTACT_FILLERS =
+  /\b(my name is|this is|i am|i'm|it's|email is|email|callback|tomorrow|today|morning|afternoon|my|is|at|on|please|thanks|thank you|and)\b/gi;
+
 function parseContact(message: string): { name: string | null; email: string | null } {
-  const email = message.match(/[\w.+-]+@[\w-]+\.[\w.-]+/)?.[0] ?? null;
-  // Speech-to-text writes spoken addresses without the @ ("SalmanX5 dot
-  // com"); drop the fragment so it does not pollute the extracted name.
-  const cleaned =
-    email === null
-      ? message.replace(/\b\S*\s+(?:dot|period)\s+\S+\b/gi, " ")
-      : message;
-  let name: string | null = cleaned
-    .replace(/[\w.+-]+@[\w-]+\.[\w.-]+/g, "")
-    .replace(/\b(my name is|this is|i am|i'm|it's|email is|email|callback|tomorrow|today|morning|afternoon|at|on|please|thanks|thank you|and)\b/gi, " ")
+  const spokenEmail = extractSpokenEmail(message);
+  let name: string | null = (spokenEmail ? message.replace(spokenEmail.source, " ") : message)
+    .replace(CONTACT_FILLERS, " ")
     .replace(/[^\w\s'-]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
@@ -851,7 +976,10 @@ function parseContact(message: string): { name: string | null; email: string | n
   // A reply that is itself a question ("What are your opening hours?")
   // is not contact information, even after filler stripping.
   if (message.trim().endsWith("?")) name = null;
-  return { name: name === "" ? null : name, email };
+  return {
+    name: name === "" ? null : name,
+    email: spokenEmail?.email ?? null,
+  };
 }
 
 function extractPreferredTime(message: string): string | null {
