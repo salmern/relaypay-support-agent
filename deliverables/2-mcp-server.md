@@ -53,7 +53,7 @@ SUPABASE_SERVICE_ROLE_KEY=<service-role-key>   # server-side only, never in the 
 ```bash
 npm run build        # compiles all workspaces (store, mcp-server, server, evaluation)
 npm run mcp:smoke    # spawns the MCP server over stdio, calls the 6 tools, prints PASS/FAIL per check
-npm test             # 127 tests across store (21), server (94), mcp-server (12)
+npm test             # 129 tests across store (21), server (96), mcp-server (12)
 ```
 
 `npm run mcp:smoke` is the fastest way to prove the server works without a call: it starts the stdio MCP client, lists tools, performs seeded lookups (TXN-9001, PAY-7002), creates and deduplicates a ticket and an escalation, and checks the audit rows.

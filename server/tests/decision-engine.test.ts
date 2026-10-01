@@ -181,4 +181,19 @@ describe("normalizeVoiceReferences", () => {
     );
     expect(normalizeVoiceReferences("p a y 7 0 0 2")).toBe("pay PAY-7002");
   });
+
+  it("handles trailing courtesy phrases after the digits (live STT shape)", () => {
+    // "for me" used to break the strict number check and the whole
+    // normalization bailed — the customer got the clarify loop instead
+    // of a lookup (observed live).
+    expect(normalizeVoiceReferences("Can you check transaction t x n 9 0 0 1 for me?")).toBe(
+      "Can you check transaction TXN-9001 for me?",
+    );
+    expect(normalizeVoiceReferences("check TXN 9 0 0 1 please")).toBe("check TXN-9001 please");
+  });
+
+  it("still leaves non-reference tails untouched", () => {
+    const text = "what happened with my payment for the invoice";
+    expect(normalizeVoiceReferences(text)).toBe(text);
+  });
 });

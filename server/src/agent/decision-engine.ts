@@ -275,6 +275,12 @@ function isConfidentSpokenReference(tokens: string[]): boolean {
 }
 
 const NUMBER_OR_AND = new RegExp(`^(?:${NUMBER_WORD_PATTERN}|and)$`, "i");
+// Trailing courtesy phrases customers append to a reference request
+// ("check t x n 9 0 0 1 for me"). They are stripped before the strict
+// number check and re-attached to the output, so they never break
+// normalization — but they also never mask a non-reference tail like
+// "for the invoice".
+const COURTESY_TAIL = /\s*(?:for\s+(?:me|us)|please|thanks|thank\s+you)\s*$/i;
 
 function canonicalPrefix(prefix: string): "TXN" | "PAY" | "CUS" {
   // Spoken prefixes arrive letter-by-letter ("t x n"); collapse before
@@ -298,13 +304,15 @@ export function normalizeVoiceReferences(text: string): string {
     "gi",
   );
   return text.replace(refRegex, (match: string, prefix: string, tail: string) => {
-    const words = tail.toLowerCase().match(/[a-z0-9]+/g) ?? [];
+    const courtesy = tail.match(COURTESY_TAIL)?.[0] ?? "";
+    const trimmedTail = courtesy ? tail.slice(0, tail.length - courtesy.length) : tail;
+    const words = trimmedTail.toLowerCase().match(/[a-z0-9]+/g) ?? [];
     // Strict mode: every word in the tail must be a number word, "and",
     // or digits. Anything else ("payout PAY-7002", "for the invoice")
     // means this is not a clean spoken reference — leave it untouched.
     if (!words.every((word) => NUMBER_OR_AND.test(word))) return match;
     const numberTokens =
-      tail.match(new RegExp(NUMBER_WORD_PATTERN, "gi")) ?? [];
+      trimmedTail.match(new RegExp(NUMBER_WORD_PATTERN, "gi")) ?? [];
     if (!isConfidentSpokenReference(numberTokens)) return match;
     const parsed = parseSpokenNumberTokens(numberTokens);
     if (parsed === null) return match;
@@ -314,9 +322,10 @@ export function normalizeVoiceReferences(text: string): string {
     const trailing = match.match(/\s*$/)?.[0] ?? "";
     const reference = `${canonicalPrefix(prefix)}-${parsed}`;
     const spoken = prefix.toLowerCase().replace(/\s+/g, "");
+    const courtesySuffix = courtesy.trim();
     return spoken === "pay" || spoken === "payout"
-      ? `${spoken} ${reference}${trailing}`
-      : `${reference}${trailing}`;
+      ? `${spoken} ${reference}${courtesySuffix ? ` ${courtesySuffix}` : ""}${trailing}`
+      : `${reference}${courtesySuffix ? ` ${courtesySuffix}` : ""}${trailing}`;
   });
 }
 
