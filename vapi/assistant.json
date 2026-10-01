@@ -1,5 +1,5 @@
 {
-  "name": "RelayPay Support Agent",
+  "name": "Salman RelayPay Support Agent",
   "firstMessage": "Hi, thank you for calling RelayPay support. My name is Sarah, and I'm happy to help with payments, payouts, invoices, or any questions about RelayPay. What can I do for you today?",
   "firstMessageMode": "assistant-speaks-first",
   "maxDurationSeconds": 600,
