@@ -219,11 +219,12 @@ const NUMBER_WORD_PATTERN =
   "twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand";
 
 /**
- * Parses spoken number tokens into a value. Digit-by-digit runs
- * ("9 0 0 1", "nine oh oh one") concatenate; magnitude phrases
- * ("nine thousand and one") use additive magnitude parsing.
+ * Parses spoken number tokens into a DIGIT STRING. Digit-by-digit runs
+ * ("9 0 0 1", "nine oh oh one") concatenate — keeping leading zeros
+ * ("oh oh one" = "001", not 1); magnitude phrases ("nine thousand and
+ * one") use additive magnitude parsing and render as "9001".
  */
-function parseSpokenNumberTokens(rawTokens: string[]): number | null {
+function parseSpokenNumberTokens(rawTokens: string[]): string | null {
   const tokens = rawTokens
     .map((token) => token.toLowerCase().replace(/[^a-z0-9]/g, ""))
     .filter((token) => token !== "" && token !== "and");
@@ -236,10 +237,13 @@ function parseSpokenNumberTokens(rawTokens: string[]): number | null {
     const isSingleDigit = (token: string): boolean =>
       /^\d$/.test(token) || (NUMBER_WORDS[token] !== undefined && NUMBER_WORDS[token]! < 10);
     if (!tokens.every(isSingleDigit)) return null;
-    return Number(tokens.map((token) => (token === "oh" ? "0" : String(NUMBER_WORDS[token] ?? token))).join(""));
+    return tokens.map((token) => (token === "oh" ? "0" : String(NUMBER_WORDS[token] ?? token))).join("");
   }
-  if (tokens.every((token) => /^\d$/.test(token))) {
-    return Number(tokens.map((token) => token).join(""));
+  // Pure digit tokens join verbatim, preserving leading zeros ("001"
+  // stays 001 — Number() would silently corrupt canonical references
+  // like TXN-001 that this parser re-visits after the fused rewrite).
+  if (tokens.every((token) => /^\d+$/.test(token))) {
+    return tokens.join("");
   }
 
   let total = 0;
@@ -261,7 +265,7 @@ function parseSpokenNumberTokens(rawTokens: string[]): number | null {
     }
   }
   const result = total + current;
-  return result > 0 ? result : null;
+  return result > 0 ? String(result) : null;
 }
 
 /**
@@ -292,6 +296,19 @@ function canonicalPrefix(prefix: string): "TXN" | "PAY" | "CUS" {
 }
 
 export function normalizeVoiceReferences(text: string): string {
+  // Fused alphanumerics: STT often merges the prefix with the digits and
+  // drops the separator entirely ("txn001", "pay7002"). The word-boundary
+  // in the main pattern below cannot match inside those, so rewrite them
+  // first. At least three digits keeps "pay 20" style fragments alone.
+  const withFused = text.replace(
+    /\b(t\s?x\s?n|p\s?a\s?y(?:\s?o\s?u\s?t)?|c\s?u\s?s)(\d{3,12})\b/gi,
+    (match: string, prefix: string, digits: string) => {
+      const spoken = prefix.toLowerCase().replace(/\s+/g, "");
+      const canonical = `${canonicalPrefix(prefix)}-${digits}`;
+      return spoken === "pay" || spoken === "payout" ? `${spoken} ${canonical}` : canonical;
+    },
+  );
+
   // Capture the spoken tail after TXN/PAY/PAYOUT/CUS up to the next
   // sentence boundary or a trailing courtesy word ("please"). The lazy
   // quantifier keeps separators OUT of the match, so spacing and other
@@ -303,7 +320,7 @@ export function normalizeVoiceReferences(text: string): string {
     "\\b(txn|payout|pay|cus|t\\s?x\\s?n|p\\s?a\\s?y(?:\\s?o\\s?u\\s?t)?|c\\s?u\\s?s)\\b[\\s:-]*([^.,;!?]*?)(?=[.,;!?]|$|\\b(?:please|thanks)\\b)",
     "gi",
   );
-  return text.replace(refRegex, (match: string, prefix: string, tail: string) => {
+  return withFused.replace(refRegex, (match: string, prefix: string, tail: string) => {
     const courtesy = tail.match(COURTESY_TAIL)?.[0] ?? "";
     const trimmedTail = courtesy ? tail.slice(0, tail.length - courtesy.length) : tail;
     const words = trimmedTail.toLowerCase().match(/[a-z0-9]+/g) ?? [];
@@ -314,13 +331,13 @@ export function normalizeVoiceReferences(text: string): string {
     const numberTokens =
       trimmedTail.match(new RegExp(NUMBER_WORD_PATTERN, "gi")) ?? [];
     if (!isConfidentSpokenReference(numberTokens)) return match;
-    const parsed = parseSpokenNumberTokens(numberTokens);
-    if (parsed === null) return match;
+    const digits = parseSpokenNumberTokens(numberTokens);
+    if (digits === null) return match;
     // Preserve any whitespace the lazy tail swallowed ("TXN-9001 please"),
     // and keep the spoken noun for payout references ("payout PAY-9002"),
     // since "payout" is sentence wording rather than part of the ID.
     const trailing = match.match(/\s*$/)?.[0] ?? "";
-    const reference = `${canonicalPrefix(prefix)}-${parsed}`;
+    const reference = `${canonicalPrefix(prefix)}-${digits}`;
     const spoken = prefix.toLowerCase().replace(/\s+/g, "");
     const courtesySuffix = courtesy.trim();
     return spoken === "pay" || spoken === "payout"

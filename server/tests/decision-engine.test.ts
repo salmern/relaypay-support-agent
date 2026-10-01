@@ -196,4 +196,24 @@ describe("normalizeVoiceReferences", () => {
     const text = "what happened with my payment for the invoice";
     expect(normalizeVoiceReferences(text)).toBe(text);
   });
+
+  it("normalizes fused alphanumeric references (live STT shape: txn001)", () => {
+    // Deepgram merged prefix and digits AND dropped a digit; the fused
+    // shape must still canonicalize so the lookup runs and honestly
+    // reports not-found instead of looping the clarify question.
+    expect(normalizeVoiceReferences("Can you check the transaction txn001?")).toBe(
+      "Can you check the transaction TXN-001?",
+    );
+    expect(normalizeVoiceReferences("check TXN9001")).toBe("check TXN-9001");
+    expect(normalizeVoiceReferences("what about pay7002")).toBe("what about pay PAY-7002");
+  });
+
+  it("keeps leading zeros in digit-by-digit references (oh oh one = 001)", () => {
+    expect(normalizeVoiceReferences("transaction t x n oh oh one")).toBe(
+      "transaction TXN-001",
+    );
+    expect(normalizeVoiceReferences("transaction TXN nine oh oh one")).toBe(
+      "transaction TXN-9001",
+    );
+  });
 });

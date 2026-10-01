@@ -3,14 +3,14 @@
 ## Automated tests
 
 ```bash
-npm test          # all 129 tests across packages
+npm test          # all 131 tests across packages
 ```
 
 | Suite | Count | What it actually verifies |
 | --- | --- | --- |
 | `packages/store` | 21 | KB chunking completeness; seed CSV parsing (stable IDs, empty→null); retrieval ranking incl. Scenario-8 ranking + FAQ-question routing; mock-store idempotent seeding, lookups, record persistence |
 | `mcp-server` | 12 | Real stdio MCP client: tools/list = exactly the 6 required tools; seeded lookup values (TXN-9001 processing, PAY-7002 review); found:false without crashing; ticket + escalation actually persisted; duplicate prevention; audit row per call |
-| `server/decision-engine` | 28 | Every decision rule: escalation triggers + categories, clarify-not-guess, guarantee→knowledge, fee questions→knowledge (even with the STT plural garble "international payment"), ticket-over-lookup, reference/identity extraction, spoken-reference normalization ("TXN-nine thousand and 1" → TXN-9001) |
+| `server/decision-engine` | 30 | Every decision rule: escalation triggers + categories, clarify-not-guess, guarantee→knowledge, fee questions→knowledge (even with the STT plural garble "international payment"), ticket-over-lookup, reference/identity extraction, spoken-reference normalization ("TXN-nine thousand and 1" → TXN-9001) |
 | `server/orchestrator` | 37 | Scenarios 1–8 + 10 end-to-end against real MCP subprocesses: deep assertions on responses AND persisted records (turns, retrievals, tool calls, tickets, escalations, events); two-step escalations with contact collection (including completing the escalation when the pending-event write is lost mid-call); duplicate escalation/ticket prevention; PII masking; escalated conversation closing; store-outage error handling; voice responses formatted for TTS (spoken amounts/references) while the audit trail keeps canonical text; concurrent parallel turns complete without cross-contamination or store corruption |
 | `server/api` | 19 | Text channel; Vapi webhook contract (`tool-calls` + legacy `function-call` → spoken result, `end-of-call-report` → conversation closed), secret rejection, CORS allowlist, root service card + GET webhook explainer, debug endpoints incl. DEBUG_TOKEN auth guard |
 | `server/speech` | 13 | Voice formatting helpers: amounts in words ("2400 USD" → "two thousand four hundred US dollars"), currency-code expansion, hyphen-free references ("TXN-9001" → "T X N nine zero zero one"), pass-through of plain text |

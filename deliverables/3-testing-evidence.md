@@ -1,6 +1,6 @@
 # Deliverable 3: Testing Evidence Table
 
-Automated suite: `npm test` runs **129 tests** (store 21, server 96 incl. speech 13, mcp-server 12) against the real orchestrator and real MCP subprocesses. `npm run evaluate` runs the 10 Week 6 scenarios in-process and asserts behavior (10/10 PASS). Every claim below traces to a named test or a live trace.
+Automated suite: `npm test` runs **131 tests** (store 21, server 98 incl. speech 13, mcp-server 12) against the real orchestrator and real MCP subprocesses. `npm run evaluate` runs the 10 Week 6 scenarios in-process and asserts behavior (10/10 PASS). Every claim below traces to a named test or a live trace.
 
 ## Part 1: Scenario tests (Week 6 scenarios 1 to 9)
 
@@ -30,5 +30,5 @@ Automated suite: `npm test` runs **129 tests** (store 21, server 96 incl. speech
 
 ## Regression sweep
 
-- 129/129 automated tests pass, plus `npm run evaluate` 10/10, `npm run build` and `npm run typecheck` exit 0.
+- 131/131 automated tests pass, plus `npm run evaluate` 10/10, `npm run build` and `npm run typecheck` exit 0.
 - Live voice verification: recorded calls confirmed the full flow end to end, including the grounded fee answer, spoken-reference lookup ("t x n 9 0 0 1 for me"), the two-step escalation capturing a spoken email ("salmanx550gmail dot com" persisted as salmanx550@gmail.com), and polite closings on "no" and "thank you".
