@@ -33,6 +33,21 @@ describe("classifyIntent", () => {
   it("routes account questions to account lookup", () => {
     expect(classifyIntent("Can you check my account?")).toBe("account_lookup");
   });
+
+  it("routes fee questions to knowledge even when STT garbles the plural", () => {
+    // Voice STT often drops the plural: "...for international payment"
+    // (singular) used to match the generic-payment rule and trap the
+    // customer in the payment-clarify loop (observed live on voice).
+    expect(classifyIntent("What fees does RelayPay charge for international payment?")).toBe("knowledge");
+    expect(classifyIntent("What fees does RelayPay charge for international payments?")).toBe("knowledge");
+    expect(classifyIntent("how much does relaypay charge per transfer")).toBe("knowledge");
+    expect(classifyIntent("What is your pricing?")).toBe("knowledge");
+  });
+
+  it("still looks up a reference when the question mentions fees", () => {
+    expect(classifyIntent("What fees applied to payout PAY-7002?")).toBe("payout_lookup");
+    expect(classifyIntent("What fees were charged on transaction TXN-9001?")).toBe("transaction_lookup");
+  });
 });
 
 describe("decide", () => {

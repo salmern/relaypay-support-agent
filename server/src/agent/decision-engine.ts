@@ -79,6 +79,7 @@ const REFERENCE_PAY = /\bPAY-\d+\b/i;
 const GENERIC_PAYMENT = /\b(transaction|payment|transfer|wire|invoice payment)\b/i;
 const ACCOUNT_INTENT = /\b(my (account|plan|profile)|account status|our account|kyc status|verification status|account state|the account|check my account|my account\?|account information)\b/i;
 const GUARANTEE_INTENT = /\bguarantee\b/i;
+const FEES_INTENT = /\b(fee|fees|charge|charges|charged|pricing|price|prices|cost|costs)\b/i;
 const TICKET_INTENT = /\b(ticket|complaint|report (a |this )?problem|look into|look at it|someone (to )?(look|check|help)|need (someone|a person) to|investigate)\b/i;
 
 export function classifyIntent(message: string): Intent {
@@ -93,7 +94,15 @@ export function classifyIntent(message: string): Intent {
   // the ticket flow still links any referenced transaction for context.
   if (TICKET_INTENT.test(message)) return "ticket";
   if (PAYOUT_INTENT.test(message) || REFERENCE_PAY.test(message)) return "payout_lookup";
-  if (REFERENCE_TXN.test(message) || GENERIC_PAYMENT.test(message)) return "transaction_lookup";
+  if (REFERENCE_TXN.test(message)) return "transaction_lookup";
+  // Fee/pricing questions are policy questions (Scenario 1) — but they sit
+  // AFTER explicit references, so "what fees apply to payout PAY-7002?"
+  // still looks the payout up. Speech-to-text often garbles the plural
+  // ("...for international payment"), which used to slip past
+  // GENERIC_PAYMENT's word boundary and trap the customer in the
+  // payment-clarify loop; explicit fee keywords route to knowledge first.
+  if (FEES_INTENT.test(message)) return "knowledge";
+  if (GENERIC_PAYMENT.test(message)) return "transaction_lookup";
   if (ACCOUNT_INTENT.test(message)) return "account_lookup";
   return "knowledge";
 }

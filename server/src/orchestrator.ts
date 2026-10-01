@@ -10,7 +10,7 @@
  *      deterministic responder phrases it instead.
  *   5. Conversation, turn, retrieval, tool-call and event records persist.
  */
-import type { AnswerType, KnowledgeChunk, Store } from "@relaypay/store";
+import type { AnswerType, EscalationCategory, KnowledgeChunk, Store } from "@relaypay/store";
 import {
   decide,
   extractIdentity,
@@ -122,10 +122,55 @@ export class SupportOrchestrator {
     // is answering our ask for name/email.
     const pendingEscalation = await this.findPendingEscalation(input.conversationId);
     if (pendingEscalation) {
+      // Stale-marker heal: if an escalation record already holds contact
+      // details but the pending event was never cleared (e.g. its write
+      // was lost mid-call), finish the handover instead of dead-ending
+      // the customer in a clarify loop.
+      const { email } = parseContact(input.userMessage);
+      if (email) {
+        const escalations = await this.store.listEscalations(input.conversationId);
+        const open = escalations.find((e) => e.status === "open");
+        if (open && open.user_email) {
+          const decision: Decision = {
+            action: "escalate",
+            intent: "escalation",
+            escalationCategory: open.category,
+            rationale: `Escalation ${open.escalation_id} already holds contact details — confirming handover`,
+          };
+          const base = newBase(decision);
+          base.escalationId = open.escalation_id;
+          const response = await this.phrase(
+            input,
+            decision,
+            null,
+            [],
+            templates.escalationCreatedResponse({ hasCallback: Boolean(extractPreferredTime(input.userMessage)) }),
+          );
+          return this.finishTurn(input, base, {
+            response,
+            answerType: "escalation",
+            confidence: 0.95,
+            uncertaintyNote: null,
+          });
+        }
+      }
       return this.completeEscalation(input);
     }
 
     const previousTurns = await this.store.listTurns(input.conversationId);
+
+    // If the previous turn asked for name/email and the customer is now
+    // answering, complete the escalation even when the pending event
+    // write was lost mid-call (observed live on voice: without this, the
+    // next turn fell through to the decline template). Speech-to-text
+    // often drops the @ ("salmanx5 dot com"), so the signal is the
+    // contact-provision wording, not a parseable address.
+    const lastAssistant = previousTurns[previousTurns.length - 1]?.assistant_response ?? "";
+    const askedForContact = /could i take your name and email/i.test(lastAssistant);
+    const givingContact = /\b(my name is|name is|my email|email is|@|dot com|reach me at)\b/i.test(input.userMessage);
+    if (!pendingEscalation && askedForContact && givingContact) {
+      return this.completeEscalation(input);
+    }
 
     // Collect identity info from this message or earlier turns.
     let identity = extractIdentity(input.userMessage);
@@ -536,13 +581,24 @@ export class SupportOrchestrator {
     const client = await this.mcp(input.conversationId);
 
     // Record the pending state through MCP so it is auditable and the
-    // next turn can complete the escalation with contact details.
-    await client.callTool("log_conversation_event", {
+    // next turn can complete the escalation with contact details. The
+    // write must succeed: if the pending marker is silently lost, the
+    // next turn sees no pending escalation and the customer gets the
+    // decline template (observed live on voice).
+    const pendingResult = await client.callTool("log_conversation_event", {
       conversation_id: input.conversationId,
       event_type: "escalation_pending_contact",
       summary: `Escalation required (${decision.escalationCategory}): ${decision.rationale}`,
       metadata: { category: decision.escalationCategory ?? "other" },
     });
+    if (pendingResult.logged !== true) {
+      return this.finishTurn(input, base, {
+        response: templates.toolErrorResponse("starting the escalation"),
+        answerType: "error",
+        confidence: 0.3,
+        uncertaintyNote: `Pending-escalation event not logged: ${String(pendingResult.error ?? "unknown error")}`,
+      });
+    }
 
     const response = await this.phrase(input, decision, null, [], templates.escalationContactRequestResponse());
     return this.finishTurn(input, base, {
@@ -553,23 +609,47 @@ export class SupportOrchestrator {
     });
   }
 
-  private async completeEscalation(input: TurnInput): Promise<TurnResult> {
+  private async completeEscalation(input: TurnInput, categoryOverride?: EscalationCategory): Promise<TurnResult> {
+    const { name, email } = parseContact(input.userMessage);
+    const events = await this.store.listConversationEvents(input.conversationId);
+    // Use the LAST pending event: a conversation can escalate more than
+    // once, and the newest ask is the one being answered.
+    const pendingEvents = events.filter((e) => e.event_type === "escalation_pending_contact");
+    const priorEvent = pendingEvents[pendingEvents.length - 1];
+    const category: EscalationCategory =
+      categoryOverride ??
+      (priorEvent && typeof priorEvent.metadata.category === "string"
+        ? (priorEvent.metadata.category as EscalationCategory)
+        : "other");
+
+    // Stale-marker heal: no pending event survives (e.g. the event write
+    // was lost mid-call), but the customer is giving contact details.
+    // Re-log the marker (best effort) so the audit trail shows what this
+    // escalation completes, then carry on with "other" as the category.
+    if (!priorEvent) {
+      try {
+        const client = await this.mcp(input.conversationId);
+        await client.callTool("log_conversation_event", {
+          conversation_id: input.conversationId,
+          event_type: "escalation_pending_contact",
+          summary: `Pending escalation marker re-logged: customer provided contact details without a surviving pending event`,
+          metadata: { category: "other", relogged: true },
+        });
+      } catch (error) {
+        process.stderr.write(
+          `[orchestrator] pending-marker heal log failed: ${error instanceof Error ? error.message : String(error)}\n`,
+        );
+      }
+    }
+
     const decision: Decision = {
       action: "escalate",
       intent: "escalation",
-      escalationCategory: "other",
+      escalationCategory: category,
       rationale: "Completing pending escalation with customer contact details",
     };
     const base = newBase(decision);
     const client = await this.mcp(input.conversationId);
-
-    const { name, email } = parseContact(input.userMessage);
-    const events = await this.store.listConversationEvents(input.conversationId);
-    const priorEvent = events.find((e) => e.event_type === "escalation_pending_contact");
-    const category =
-      priorEvent && typeof priorEvent.metadata.category === "string"
-        ? priorEvent.metadata.category
-        : "other";
 
     // Nothing usable in the reply: re-ask instead of filing a contact-less
     // escalation. The pending event stays, so the next message retries.
@@ -593,7 +673,9 @@ export class SupportOrchestrator {
       user_name: name ?? undefined,
       user_email: email ?? undefined,
       category,
-      reason: priorEvent?.summary ?? "Customer requested human support",
+      reason:
+        priorEvent?.summary ??
+        `Customer provided contact details during ${category} escalation`,
       preferred_time: extractPreferredTime(input.userMessage) ?? undefined,
     });
     base.mcpCalls.push({ tool: "create_escalation", result });
@@ -753,13 +835,22 @@ export class SupportOrchestrator {
 
 function parseContact(message: string): { name: string | null; email: string | null } {
   const email = message.match(/[\w.+-]+@[\w-]+\.[\w.-]+/)?.[0] ?? null;
-  let name = message
+  // Speech-to-text writes spoken addresses without the @ ("SalmanX5 dot
+  // com"); drop the fragment so it does not pollute the extracted name.
+  const cleaned =
+    email === null
+      ? message.replace(/\b\S*\s+(?:dot|period)\s+\S+\b/gi, " ")
+      : message;
+  let name: string | null = cleaned
     .replace(/[\w.+-]+@[\w-]+\.[\w.-]+/g, "")
     .replace(/\b(my name is|this is|i am|i'm|it's|email is|email|callback|tomorrow|today|morning|afternoon|at|on|please|thanks|thank you|and)\b/gi, " ")
     .replace(/[^\w\s'-]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
   if (name.length > 60) name = name.slice(0, 60);
+  // A reply that is itself a question ("What are your opening hours?")
+  // is not contact information, even after filler stripping.
+  if (message.trim().endsWith("?")) name = null;
   return { name: name === "" ? null : name, email };
 }
 

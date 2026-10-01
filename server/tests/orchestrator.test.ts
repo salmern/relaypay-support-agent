@@ -6,7 +6,7 @@
  * which need external credentials — see TESTING.md).
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -411,5 +411,54 @@ describe("voice speech formatting", () => {
     const result = await turn("Can you check transaction TXN-9001?");
     expect(result.response).toContain("TXN-9001");
     expect(result.response).toContain("2400 USD");
+  });
+});
+
+describe("fee question routing", () => {
+  it("answers fee questions from knowledge even with singular 'payment' (voice STT garble)", async () => {
+    const result = await turn("What fees does RelayPay charge for international payment?");
+    expect(result.answerType).toBe("knowledge");
+    expect(result.response).toMatch(/fees vary/i);
+    const logs = persisted().retrieval_logs.filter((l) => l.conversation_id === conversationId);
+    expect(logs).toHaveLength(1);
+    expect(logs[0]!.source_title.toLowerCase()).toContain("fee");
+  });
+});
+
+describe("voice escalation flow", () => {
+  it("completes the escalation when the pending event write is lost mid-call", async () => {
+    // Turn 1: escalation trigger, contact ask (pending event logged).
+    const first = await orchestrator.handleTurn({
+      conversationId,
+      channel: "voice",
+      userMessage: "My account was restricted and nobody is helping me",
+    });
+    expect(first.answerType).toBe("escalation");
+    expect(first.escalationId).toBeNull();
+
+    // Reproduce the live voice failure: the pending event never survived
+    // in the store, so the next turn found no pending escalation and the
+    // customer got the decline template (observed in the call transcript).
+    const data = JSON.parse(readFileSync(storePath, "utf8")) as {
+      conversation_events: Array<{ conversation_id: string; event_type: string }>;
+    };
+    data.conversation_events = data.conversation_events.filter(
+      (e) => !(e.conversation_id === conversationId && e.event_type === "escalation_pending_contact"),
+    );
+    writeFileSync(storePath, JSON.stringify(data));
+
+    // Turn 2: STT wrote the email WITHOUT the @ ("SalmanX5 dot com").
+    const second = await orchestrator.handleTurn({
+      conversationId,
+      channel: "voice",
+      userMessage: "My name is Salman Muhammad and my email is SalmanX5 dot com",
+    });
+    expect(second.answerType).toBe("escalation");
+    expect(second.escalationId).toMatch(/^ESC-/);
+    expect(second.response).toMatch(/follow up|specialist|human support/i);
+    const escalations = persisted().escalations.filter((e) => e.conversation_id === conversationId);
+    expect(escalations).toHaveLength(1);
+    expect(escalations[0]!.category).toBe("other");
+    expect(escalations[0]!.user_name).toBeTruthy();
   });
 });
