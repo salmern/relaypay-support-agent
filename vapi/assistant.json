@@ -1,10 +1,14 @@
 {
   "name": "RelayPay Support Agent",
-  "firstMessage": "Hello, you've reached RelayPay customer support. I can help with payments, payouts, invoices, and general questions about RelayPay. What can I help you with?",
+  "firstMessage": "Hi, thank you for calling RelayPay support. My name is Sarah, and I'm happy to help with payments, payouts, invoices, or any questions about RelayPay. What can I do for you today?",
   "firstMessageMode": "assistant-speaks-first",
   "maxDurationSeconds": 600,
   "silenceTimeoutSeconds": 20,
   "backgroundSound": "office",
+  "server": {
+    "url": "{{VAPI_SERVER_URL}}/vapi/webhook",
+    "secret": "{{VAPI_SERVER_SECRET}}"
+  },
   "model": {
     "provider": "anthropic",
     "model": "claude-sonnet-4-5-20250929",

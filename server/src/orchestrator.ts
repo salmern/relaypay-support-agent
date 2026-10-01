@@ -223,10 +223,31 @@ export class SupportOrchestrator {
       }
     }
 
+    // A bare "No." right after "Is there anything else I can help with?"
+    // declines the offer — close politely instead of answering a question
+    // nobody asked (observed live on text AND voice).
+    const offeredAnythingElse = /anything else/i.test(lastAssistant);
+    if (!pendingEscalation && offeredAnythingElse && bareNegative) {
+      const decision: Decision = {
+        action: "answer",
+        intent: "knowledge",
+        rationale: "Customer declined the anything-else offer — closing pleasantry",
+      };
+      const base = newBase(decision);
+      const response = await this.phrase(input, decision, null, [], templates.farewellResponse());
+      return this.finishTurn(input, base, {
+        response,
+        answerType: "knowledge",
+        confidence: 0.95,
+        uncertaintyNote: null,
+      });
+    }
+
     // Farewells end the conversation; they are never new support requests.
     // Without this, "No thank you" after "anything else?" fell through to
     // the decline template (observed live on voice and text).
-    if (previousTurns.length > 0 && FAREWELL_PATTERN.test(input.userMessage)) {
+    if (previousTurns.length > 0 &&
+      (FAREWELL_PATTERN.test(input.userMessage) || BARE_THANKS_PATTERN.test(input.userMessage))) {
       const decision: Decision = {
         action: "answer",
         intent: "knowledge",
@@ -917,6 +938,8 @@ const FAREWELL_PATTERN =
   /\b(no,? (thank you|thanks)|no thanks?|no goodbye|goodbye|bye( bye)?|that('s| is) all|that will be all|nothing else)\b/i;
 const AFFIRMATIVE_PATTERN =
   /^\s*(y|yes|yeah|yep|yup|sure|ok|okay|please|of course|correct|right|affirmative|go ahead|sounds good)\b/i;
+// A lone "Thank you." / "Thanks." is a closing pleasantry, not a request.
+const BARE_THANKS_PATTERN = /^\s*(thank you|thanks)\s*[.!]?\s*$/i;
 
 // --- Spoken-email extraction ---------------------------------------------
 

@@ -26,6 +26,8 @@ export type CallState = "idle" | "connecting" | "connected" | "error";
 export interface TranscriptEntry {
   role: "user" | "assistant";
   text: string;
+  /** True while the sentence is still being spoken/transcribed. */
+  partial?: boolean;
 }
 
 export interface VapiEvents {
@@ -103,10 +105,18 @@ export class VapiVoiceClient {
       if (
         message.type === "transcript" &&
         (message.role === "user" || message.role === "assistant") &&
-        message.transcriptType === "final" &&
         message.transcript
       ) {
-        this.events.onTranscript({ role: message.role, text: message.transcript });
+        // Interim (partial) results update the live bubble in place —
+        // like film subtitles — and the final result commits it. This
+        // removes the delay where captions only appeared after the
+        // voice finished speaking the whole sentence.
+        const partial = message.transcriptType !== "final";
+        this.events.onTranscript({
+          role: message.role,
+          text: message.transcript,
+          partial,
+        });
       }
     });
     this.vapi.on("error", (error: unknown) => {

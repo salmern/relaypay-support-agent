@@ -33,7 +33,19 @@ function App() {
       onCallState: setCallState,
       onListeningChange: setListening,
       onSpeakingChange: setSpeaking,
-      onTranscript: (entry) => setTranscript((prev) => [...prev, entry]),
+      // Live captions: a partial (interim) transcript updates the bubble
+      // in place as the words are spoken/heard; the final result commits
+      // it, exactly like film subtitles.
+      onTranscript: (entry) =>
+        setTranscript((prev) => {
+          const last = prev[prev.length - 1];
+          if (last && last.role === entry.role && last.partial) {
+            const next = prev.slice(0, -1);
+            // Final results commit; interim results keep streaming.
+            return [...next, { ...entry, partial: entry.partial }];
+          }
+          return [...prev, { ...entry, partial: entry.partial }];
+        }),
       onError: (message) => setError(message),
     });
   }
@@ -156,7 +168,7 @@ function App() {
             </p>
           ) : (
             transcript.map((entry, i) => (
-              <div key={i} className={`bubble ${entry.role}`}>
+              <div key={i} className={`bubble ${entry.role}${entry.partial ? " partial" : ""}`}>
                 {entry.text}
               </div>
             ))

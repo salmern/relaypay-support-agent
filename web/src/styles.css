@@ -265,4 +265,11 @@ button.secondary {
 @media (max-width: 560px) {
   .card { padding: 16px; }
   .bubble { max-width: 95%; }
+
+  /* Live (interim) captions stream in slightly dimmed, like subtitles;
+     the final transcript replaces them at full opacity. */
+  .bubble.partial {
+    opacity: 0.6;
+    font-style: italic;
+  }
 }

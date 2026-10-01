@@ -423,6 +423,21 @@ describe("conversation courtesies", () => {
     expect(third.response).not.toMatch(/don't have approved information/i);
   });
 
+  it("treats a bare 'Thank you.' as a pleasantry, not a request (live voice bug)", async () => {
+    await turn("What fees does RelayPay charge for international payments?");
+    const result = await turn("Thank you.");
+    expect(result.response).toMatch(/reach out|goodbye|thank you/i);
+    expect(result.response).not.toMatch(/don't have approved information/i);
+  });
+
+  it("closes politely when the customer says 'no' after 'anything else?' (text transcript bug)", async () => {
+    await turn("My account was restricted and nobody is helping me");
+    await turn("my name is aliyu and my email is aliyu@yahoo.com");
+    const third = await turn("no");
+    expect(third.response).toMatch(/thank you for contacting|goodbye|reach out/i);
+    expect(third.response).not.toMatch(/don't have approved information/i);
+  });
+
   it("starts the escalation when the customer accepts the follow-up offer (voice loop bug)", async () => {
     const first = await turn("What is the airspeed velocity of an unladen swallow?");
     expect(first.answerType).toBe("decline");
