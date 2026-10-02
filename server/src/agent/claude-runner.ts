@@ -75,9 +75,17 @@ export function claudeTimeoutMs(): number {
   return Number.isFinite(configured) && configured > 0 ? configured : 12_000;
 }
 
+/** Voice turns must fit Vapi's tool timeout, so their model budget is tighter. */
+export function claudeVoiceTimeoutMs(): number {
+  const configured = Number(process.env.CLAUDE_VOICE_TIMEOUT_MS);
+  return Number.isFinite(configured) && configured > 0 ? configured : 8_000;
+}
+
 export async function runClaudeAgent(params: {
   conversationId: string;
   turnPrompt: string;
+  /** Overrides the default timeout (e.g. the tighter voice budget). */
+  timeoutMs?: number;
 }): Promise<ClaudeRunResult> {
   if (!process.env.ANTHROPIC_API_KEY) {
     throw new Error("ANTHROPIC_API_KEY is not configured");
@@ -89,7 +97,8 @@ export async function runClaudeAgent(params: {
   let errorMessage: string | null = null;
 
   const abortController = new AbortController();
-  const timer = setTimeout(() => abortController.abort(), claudeTimeoutMs());
+  const timeoutMs = params.timeoutMs ?? claudeTimeoutMs();
+  const timer = setTimeout(() => abortController.abort(), timeoutMs);
 
   // CLAUDE_MOUNT_MCP=false skips the per-turn MCP subprocess on
   // memory-constrained hosts: the orchestrator already passes the real
@@ -137,7 +146,7 @@ export async function runClaudeAgent(params: {
   } catch (error) {
     isError = true;
     errorMessage = abortController.signal.aborted
-      ? `agent run timed out after ${claudeTimeoutMs()}ms`
+      ? `agent run timed out after ${timeoutMs}ms`
       : error instanceof Error ? error.message : String(error);
   } finally {
     clearTimeout(timer);

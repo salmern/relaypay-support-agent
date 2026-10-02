@@ -38,7 +38,7 @@ import {
 } from "./agent/decision-engine.js";
 import { RetrievalService, type GroundedKnowledge } from "./knowledge/retrieval-service.js";
 import { RelayPayMcpClient } from "./agent/mcp-client.js";
-import { runClaudeAgent } from "./agent/claude-runner.js";
+import { claudeTimeoutMs, claudeVoiceTimeoutMs, runClaudeAgent } from "./agent/claude-runner.js";
 import { buildTurnPrompt } from "./agent/system-prompt.js";
 import * as templates from "./agent/response-templates.js";
 import { render, type Reply } from "./agent/response-templates.js";
@@ -107,6 +107,10 @@ interface TurnBase {
   escalationId: string | null;
   customerId: string | null;
   responder: "claude" | "rules";
+  /** Why Claude was not used for this turn (timeout, error, cooldown, rejected rewrite). */
+  claudeNote?: string | null;
+  /** Milliseconds spent in the Claude phrasing step. */
+  phraseMs?: number;
 }
 
 interface TurnOutcome {
@@ -163,6 +167,22 @@ function newBase(decision: Decision): TurnBase {
 
 function str(value: unknown): string | null {
   return typeof value === "string" && value !== "" ? value : null;
+}
+
+/**
+ * Circuit breaker for Claude phrasing: after repeated timeouts/errors the
+ * model is skipped for a cooldown, so callers are not made to wait for a
+ * model that keeps failing (each failed attempt costs the full timeout).
+ */
+const claudeBreaker = { consecutiveFailures: 0, openUntil: 0 };
+const BREAKER_THRESHOLD = 2;
+function breakerCooldownMs(): number {
+  const configured = Number(process.env.CLAUDE_COOLDOWN_MS);
+  return Number.isFinite(configured) && configured >= 0 ? configured : 5 * 60_000;
+}
+export function resetClaudeBreaker(): void {
+  claudeBreaker.consecutiveFailures = 0;
+  claudeBreaker.openUntil = 0;
 }
 
 /** Idle MCP subprocesses are closed after this long (each holds ~80 MB). */
@@ -1140,6 +1160,25 @@ export class SupportOrchestrator {
     reply: Reply,
   ): Promise<string> {
     if (!process.env.ANTHROPIC_API_KEY) return render(reply);
+    if (Date.now() < claudeBreaker.openUntil) {
+      base.claudeNote = "skipped: cooling down after repeated model failures";
+      return render(reply);
+    }
+    const started = Date.now();
+    const failed = (note: string, countsAsFailure: boolean) => {
+      base.claudeNote = note;
+      base.phraseMs = Date.now() - started;
+      if (countsAsFailure) {
+        claudeBreaker.consecutiveFailures += 1;
+        if (claudeBreaker.consecutiveFailures >= BREAKER_THRESHOLD) {
+          claudeBreaker.openUntil = Date.now() + breakerCooldownMs();
+          claudeBreaker.consecutiveFailures = 0;
+          process.stderr.write(`[orchestrator] claude failing repeatedly — skipping it for ${breakerCooldownMs()}ms\n`);
+        }
+      }
+      process.stderr.write(`[orchestrator] claude phrasing unusable (${note}); using deterministic response\n`);
+      return render(reply);
+    };
     try {
       const turnPrompt = buildTurnPrompt({
         userMessage: input.userMessage,
@@ -1154,21 +1193,22 @@ export class SupportOrchestrator {
           { role: "assistant" as const, text: t.assistant_response },
         ]),
       });
-      const run = await runClaudeAgent({ conversationId: input.conversationId, turnPrompt });
-      const lead = run.isError ? "" : acceptClaudeLead(run.text, reply);
-      if (!lead) {
-        process.stderr.write(
-          `[orchestrator] claude phrasing unusable (${run.errorMessage ?? "dropped facts or empty"}); using deterministic response\n`,
-        );
-        return render(reply);
-      }
+      const run = await runClaudeAgent({
+        conversationId: input.conversationId,
+        turnPrompt,
+        timeoutMs: input.channel === "voice" ? Math.min(claudeVoiceTimeoutMs(), claudeTimeoutMs()) : claudeTimeoutMs(),
+      });
+      if (run.isError) return failed(run.errorMessage ?? "model error", true);
+      const lead = acceptClaudeLead(run.text, reply);
+      // A rewrite rejected for dropping a fact is a content problem, not
+      // an availability problem: it does not trip the breaker.
+      if (!lead) return failed(run.text.trim() ? "rewrite rejected (changed or dropped a fact)" : "empty output", !run.text.trim());
+      claudeBreaker.consecutiveFailures = 0;
       base.responder = "claude";
+      base.phraseMs = Date.now() - started;
       return render({ lead, closing: reply.closing });
     } catch (error) {
-      process.stderr.write(
-        `[orchestrator] claude runner threw: ${error instanceof Error ? error.message : String(error)}; using deterministic response\n`,
-      );
-      return render(reply);
+      return failed(`runner threw: ${error instanceof Error ? error.message : String(error)}`, true);
     }
   }
 
@@ -1216,6 +1256,8 @@ export class SupportOrchestrator {
           customer_id: base.customerId,
           identified_customer_id: base.identifiedCustomerId ?? null,
           responder: base.responder,
+          claude_note: base.claudeNote ?? null,
+          timings_ms: { phrase: base.phraseMs ?? null, turn: Date.now() - Date.parse(ctx.turnStartedAt) },
           awaiting,
           state: outcome.state ?? {},
           turn_number: ctx.previousTurns.length + 1,

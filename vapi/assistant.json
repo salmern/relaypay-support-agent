@@ -50,7 +50,8 @@
         ],
         "server": {
           "url": "{{VAPI_SERVER_URL}}/vapi/webhook",
-          "secret": "{{VAPI_SERVER_SECRET}}"
+          "secret": "{{VAPI_SERVER_SECRET}}",
+          "timeoutSeconds": 40
         }
       },
       {

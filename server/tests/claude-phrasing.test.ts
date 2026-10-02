@@ -12,9 +12,13 @@ import { join } from "node:path";
 import { loadKnowledgeChunksFromAssets, loadSeedFromAssets, MockFileStore } from "@relaypay/store";
 
 const runClaudeAgent = vi.fn();
-vi.mock("../src/agent/claude-runner.js", () => ({ runClaudeAgent: (...args: unknown[]) => runClaudeAgent(...args) }));
+vi.mock("../src/agent/claude-runner.js", () => ({
+  runClaudeAgent: (...args: unknown[]) => runClaudeAgent(...args),
+  claudeTimeoutMs: () => 12_000,
+  claudeVoiceTimeoutMs: () => 8_000,
+}));
 
-const { SupportOrchestrator } = await import("../src/orchestrator.js");
+const { SupportOrchestrator, resetClaudeBreaker } = await import("../src/orchestrator.js");
 
 let storePath: string;
 let orchestrator: InstanceType<typeof SupportOrchestrator>;
@@ -37,6 +41,7 @@ beforeEach(async () => {
   process.env.MOCK_STORE_PATH = storePath;
   orchestrator = new SupportOrchestrator(store, chunks);
   runClaudeAgent.mockReset();
+  resetClaudeBreaker();
   runClaudeAgent.mockImplementation(async ({ turnPrompt }: { turnPrompt: string }) => ({
     text: rewordDraft(turnPrompt),
     toolCalls: [],
@@ -101,5 +106,33 @@ describe("Claude phrasing keeps multi-turn flows working", () => {
     const result = await turn("c-error", "What fees does RelayPay charge for international payments?");
     expect(result.responder).toBe("rules");
     expect(result.response).toMatch(/fees vary/i);
+  });
+
+  it("gives voice turns a tighter model budget than text turns", async () => {
+    await orchestrator.handleTurn({ conversationId: "c-budget", channel: "voice", userMessage: "What fees does RelayPay charge?" });
+    await turn("c-budget-text", "What fees does RelayPay charge?");
+    const [voiceCall, textCall] = runClaudeAgent.mock.calls.map((c) => (c[0] as { timeoutMs: number }).timeoutMs);
+    expect(voiceCall).toBe(8000);
+    expect(textCall).toBe(12000);
+  });
+
+  it("stops calling a failing model for a cooldown after two failures (no 12s wait per turn)", async () => {
+    runClaudeAgent.mockImplementation(async () => ({ text: "", toolCalls: [], isError: true, errorMessage: "agent run timed out after 8000ms" }));
+    await turn("c-breaker", "What fees does RelayPay charge?");
+    await turn("c-breaker", "How long do payments take to process?");
+    expect(runClaudeAgent).toHaveBeenCalledTimes(2);
+    const third = await turn("c-breaker", "Are exchange rates fixed?");
+    expect(runClaudeAgent).toHaveBeenCalledTimes(2); // skipped while cooling down
+    expect(third.responder).toBe("rules");
+    expect(third.response).toMatch(/exchange rates may fluctuate/i);
+  });
+
+  it("records why Claude was not used in the decision event", async () => {
+    runClaudeAgent.mockImplementation(async () => ({ text: "", toolCalls: [], isError: true, errorMessage: "agent run timed out after 8000ms" }));
+    await turn("c-note", "What fees does RelayPay charge?");
+    const data = JSON.parse(readFileSync(storePath, "utf8")) as { conversation_events: Array<{ conversation_id: string; event_type: string; metadata: Record<string, unknown> }> };
+    const decision = data.conversation_events.find((e) => e.conversation_id === "c-note" && e.event_type === "decision")!;
+    expect(decision.metadata.claude_note).toMatch(/timed out/);
+    expect((decision.metadata.timings_ms as { turn: number }).turn).toBeGreaterThan(0);
   });
 });

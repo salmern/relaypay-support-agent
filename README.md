@@ -76,6 +76,8 @@ All variables are documented in [.env.example](.env.example). Summary:
 | `ANTHROPIC_API_KEY` | **yes in production** | Claude Agent SDK phrasing; without it the deterministic responder is used |
 | `CLAUDE_MODEL` | optional | backend model (default `claude-sonnet-4-5`) |
 | `CLAUDE_TIMEOUT_MS` | optional | per-turn model timeout before falling back (default 12000) |
+| `CLAUDE_VOICE_TIMEOUT_MS` | optional | tighter model budget for voice turns (default 8000) |
+| `CLAUDE_COOLDOWN_MS` | optional | after two consecutive model failures, skip Claude this long (default 5 min) |
 | `CLAUDE_MOUNT_MCP` | optional | `false` skips mounting the read-only MCP lookups for Claude (saves memory) |
 | `VITE_VAPI_PUBLIC_KEY`, `VITE_VAPI_ASSISTANT_ID` | for voice | browser Vapi config (public values only) |
 | `VAPI_SERVER_SECRET`, `VAPI_SERVER_URL` | for voice | webhook verification; assistant server URL |
@@ -197,7 +199,7 @@ See [`vapi/README.md`](vapi/README.md). In short:
 ## Testing
 
 ```bash
-npm test                    # 190 tests: store, MCP stdio, decision engine, orchestrator, Claude phrasing (mocked), API, speech
+npm test                    # 193 tests: store, MCP stdio, decision engine, orchestrator, Claude phrasing (mocked), API, speech
 npm run evaluate            # 11 scenarios against an isolated mock store
 npm run evaluate:supabase   # same, persisted to Supabase with a run_id
 npm run mcp:smoke           # MCP tool contract check over real stdio
@@ -232,7 +234,11 @@ Claude phrasing. Details: [TESTING.md](TESTING.md). Architecture deep-dive:
   (`npm run vapi:setup` automates this).
 
 `/api/health` reports the responder (`claude` or `rules`), the data
-provider and the number of live MCP sessions.
+provider and the number of live MCP sessions. Each turn's decision event
+records which responder actually phrased it, why Claude was skipped
+(`claude_note`: timeout, error, cooldown, rejected rewrite) and timings
+(`timings_ms`) — query `conversation_events` to diagnose latency. The Vapi
+`support_agent` tool allows 40 s (`timeoutSeconds` in `vapi/assistant.json`).
 
 ### Debug endpoints & DEBUG_TOKEN
 
