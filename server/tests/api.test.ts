@@ -332,6 +332,33 @@ describe("Vapi webhook", () => {
   });
 });
 
+describe("caller identifier", () => {
+  it("records web-text for chat conversations", async () => {
+    const { id } = await newConversation();
+    expect((await store.getConversation(id))?.caller_identifier).toBe("web-text");
+  });
+
+  it("records the phone number for phone calls and web-voice for browser calls", async () => {
+    const post = (callId: string, call: Record<string, unknown>) =>
+      app.inject({
+        method: "POST",
+        url: "/vapi/webhook",
+        headers: { "x-vapi-secret": "test-secret" },
+        payload: {
+          message: {
+            type: "tool-calls",
+            call: { id: callId, ...call },
+            toolCallList: [{ id: "tc", function: { name: "support_agent", arguments: { transcript: "Check TXN-9001" } } }],
+          },
+        },
+      });
+    await post("call-phone-1", { type: "inboundPhoneCall", customer: { number: "+2348000000000" } });
+    await post("call-web-1", { type: "webCall" });
+    expect((await store.getConversation("call-phone-1"))?.caller_identifier).toBe("+2348000000000");
+    expect((await store.getConversation("call-web-1"))?.caller_identifier).toBe("web-voice");
+  });
+});
+
 describe("debug endpoints", () => {
   it("exposes conversation details for observability", async () => {
     const res = await app.inject({ method: "GET", url: "/api/debug/conversations/call-api-test" });

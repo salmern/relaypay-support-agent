@@ -725,3 +725,35 @@ describe("audit: ticket creation", () => {
     expect(ticket.transaction_id).toBeNull();
   });
 });
+
+describe("audit follow-up: customer links and names", () => {
+  it("does not link an escalation to the owner of a transaction the caller merely looked up", async () => {
+    await turn("Can you check transaction TXN-9001?");
+    await turn("My account was restricted and nobody is helping me.");
+    await turn("My name is Salman and my email is salman@example.com");
+    const escalation = persisted().escalations.find((e) => e.conversation_id === conversationId)! as unknown as { customer_id: string | null };
+    expect(escalation.customer_id).toBeNull();
+  });
+
+  it("links the escalation to the record it is about (review-required payout)", async () => {
+    await turn("What is happening with payout PAY-7002?");
+    await turn("Efua Mensah, efua@accrastack.example");
+    const escalation = persisted().escalations.find((e) => e.conversation_id === conversationId)! as unknown as { customer_id: string | null };
+    expect(escalation.customer_id).toBe("CUS-1003");
+  });
+
+  it("asks for the name instead of storing a garbled sentence as one", async () => {
+    await turn("My account was restricted and nobody is helping me.");
+    const second = await orchestrator.handleTurn({
+      conversationId,
+      channel: "voice",
+      userMessage: "Please send man and my email is Salman at Gmail dot com.",
+    });
+    expect(second.response).toMatch(/what name should I put on the request/i);
+    const third = await turn("Salman");
+    expect(third.escalationId).toMatch(/^ESC-/);
+    const escalation = persisted().escalations.find((e) => e.conversation_id === conversationId)! as unknown as { user_name: string; user_email: string };
+    expect(escalation.user_name).toBe("Salman");
+    expect(escalation.user_email).toBe("salman@gmail.com");
+  });
+});

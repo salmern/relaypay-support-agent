@@ -99,6 +99,8 @@ export interface TurnResult {
 
 interface TurnBase {
   decision: Decision;
+  /** Set when an account lookup identified the caller's customer record. */
+  identifiedCustomerId?: string | null;
   retrieval: GroundedKnowledge | null;
   mcpCalls: Array<{ tool: string; result: unknown }>;
   ticketId: string | null;
@@ -119,7 +121,12 @@ interface TurnOutcome {
 interface ConversationState {
   awaiting: Awaiting;
   data: Record<string, unknown>;
-  /** Latest customer the conversation has been linked to by a lookup. */
+  /**
+   * Customer the caller identified as (account lookup by company name or
+   * customer ID). A transaction or payout lookup does NOT identify the
+   * caller — knowing a reference is not proof of owning the account — so
+   * it never sets this.
+   */
   customerId: string | null;
   /** Latest ticket created in the conversation. */
   ticketId: string | null;
@@ -492,7 +499,8 @@ export class SupportOrchestrator {
     const reason = str(ctx.state.data.reason) ?? lastPendingEvent(ctx)?.summary ?? `Customer requested human support (${category})`;
     const time = extractPreferredTime(input.userMessage);
     const base = newBase({ ...decision, escalationCategory: category, rationale: "Contact details collected — creating the escalation record" });
-    base.customerId = ctx.state.customerId;
+    const linkedCustomer = str(ctx.state.data.customer_id) ?? ctx.state.customerId;
+    base.customerId = linkedCustomer;
 
     const result = await this.callTool(input.conversationId, "create_escalation", {
       user_name: name,
@@ -500,7 +508,7 @@ export class SupportOrchestrator {
       category,
       reason,
       ...(time?.valid ? { preferred_time: time.value } : {}),
-      ...(ctx.state.customerId ? { customer_id: ctx.state.customerId } : {}),
+      ...(linkedCustomer ? { customer_id: linkedCustomer } : {}),
       ...(ctx.state.ticketId ? { ticket_id: ctx.state.ticketId } : {}),
     });
     base.mcpCalls.push({ tool: "create_escalation", result });
@@ -911,7 +919,7 @@ export class SupportOrchestrator {
       confidence: 0.9,
       uncertaintyNote: "Waiting for customer contact details to create the escalation record",
       awaiting: "contact",
-      state: { category: review.category, reason: review.reason },
+      state: { category: review.category, reason: review.reason, customer_id: base.customerId },
     });
   }
 
@@ -950,6 +958,7 @@ export class SupportOrchestrator {
       });
     }
     base.customerId = str(result.customer_id);
+    base.identifiedCustomerId = base.customerId;
 
     // Restricted accounts always go to human support (escalation rules).
     if (String(result.account_status) === "restricted") {
@@ -1205,6 +1214,7 @@ export class SupportOrchestrator {
           ticket_id: base.ticketId,
           escalation_id: base.escalationId,
           customer_id: base.customerId,
+          identified_customer_id: base.identifiedCustomerId ?? null,
           responder: base.responder,
           awaiting,
           state: outcome.state ?? {},
@@ -1310,7 +1320,7 @@ function readState(
   let customerId: string | null = null;
   let ticketId: string | null = null;
   for (const event of decisions) {
-    customerId = str(event.metadata.customer_id) ?? customerId;
+    customerId = str(event.metadata.identified_customer_id) ?? customerId;
     ticketId = str(event.metadata.ticket_id) ?? ticketId;
   }
 
@@ -1499,9 +1509,17 @@ function parseName(message: string, emailSource: string | null): string | null {
   if (cue) {
     words = cue[1]!.split(/\s+/);
   } else {
-    const stripped = text.replace(/\b(my|email|e-mail|is|and|callback|at|on|please|thanks|thank you)\b/gi, " ");
+    // No cue: accept only a reply that IS a name ("Efua", "Efua Mensah,
+    // efua@…", "Salman here"). Anything sentence-like — e.g. speech-to-text
+    // garbling "my name is Salman" into "Please send man and my email
+    // is…" — yields null, so the agent asks for the name instead of
+    // storing "Send Man".
+    const stripped = text
+      .replace(/\b(my e-?mail(?: address)? is|e-?mail(?: address)?|callback|call me back)\b.*$/i, " ")
+      .replace(/\b(here|speaking)\b/gi, " ")
+      .replace(/(^|[\s,;.!:])(and|thanks|thank you)[\s,;.!:]*$/i, " ");
     const tokens = stripped.split(/[\s,;.!:]+/).filter(Boolean);
-    if (tokens.length === 0 || tokens.length > 5) return null;
+    if (tokens.length === 0 || tokens.length > 3 || !tokens.every(isNameWord)) return null;
     words = tokens;
   }
   const name: string[] = [];

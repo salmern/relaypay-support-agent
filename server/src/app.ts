@@ -31,6 +31,12 @@ export interface BuildAppOptions {
   production?: boolean;
 }
 
+interface VapiCall {
+  id?: string;
+  type?: string;
+  customer?: { number?: string };
+}
+
 function safeEqual(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
   let diff = 0;
@@ -156,7 +162,8 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
   app.post("/api/conversations", async (request, reply) => {
     if (rateLimited(request, reply)) return reply;
     const conversationId = `conv-${randomUUID()}`;
-    await options.store.createConversation({ conversation_id: conversationId, channel: "text", caller_identifier: null });
+    // Web chat has no caller identity (no login); record the source.
+    await options.store.createConversation({ conversation_id: conversationId, channel: "text", caller_identifier: "web-text" });
     return reply.code(201).send({
       conversation_id: conversationId,
       channel: "text",
@@ -284,9 +291,9 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
           function?: { name?: string; arguments?: Record<string, unknown> };
         }>;
         functionCall?: { name?: string; parameters?: Record<string, unknown> };
-        call?: { id?: string };
+        call?: VapiCall;
       };
-      call?: { id?: string };
+      call?: VapiCall;
     } | undefined;
 
     const messageType = body?.message?.type ?? "";
@@ -296,6 +303,10 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
     const topLevelCallId = body?.call?.id;
     const nestedCallId = body?.message?.call?.id;
     const callId = topLevelCallId ?? nestedCallId ?? `vapi-${Date.now().toString(36)}`;
+    // Caller identifier: the phone number for phone calls (Vapi sends
+    // call.customer.number); browser calls have none, so record the source.
+    const call = body?.message?.call ?? body?.call;
+    const callerIdentifier = call?.customer?.number ?? (call?.type && call.type !== "webCall" ? call.type : "web-voice");
     if (!topLevelCallId && !nestedCallId) {
       process.stderr.write(
         `[vapi] webhook request without call.id — using per-request fallback ${callId} (multi-turn flows will fragment)\n`,
@@ -318,7 +329,7 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
             continue;
           }
           try {
-            const turn = await orchestrator.handleTurn({ conversationId: callId, channel: "voice", userMessage: transcript });
+            const turn = await orchestrator.handleTurn({ conversationId: callId, channel: "voice", userMessage: transcript, callerIdentifier });
             results.push({ toolCallId, result: turn.response });
           } catch (error) {
             process.stderr.write(`[vapi] turn failed for ${callId}: ${error instanceof Error ? error.message : String(error)}\n`);
@@ -340,7 +351,7 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
           return reply.send({ result: "I'm sorry, I did not catch that. Could you say it again?" });
         }
         try {
-          const turn = await orchestrator.handleTurn({ conversationId: callId, channel: "voice", userMessage: transcript });
+          const turn = await orchestrator.handleTurn({ conversationId: callId, channel: "voice", userMessage: transcript, callerIdentifier });
           return reply.send({ result: turn.response });
         } catch (error) {
           process.stderr.write(`[vapi] turn failed for ${callId}: ${error instanceof Error ? error.message : String(error)}\n`);
