@@ -3,7 +3,7 @@
 ## Automated tests
 
 ```bash
-npm test          # all 198 tests across packages
+npm test          # all 199 tests across packages
 ```
 
 `npm test` always runs the deterministic responder: `server/tests/setup.ts`

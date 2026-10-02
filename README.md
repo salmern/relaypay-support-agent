@@ -199,7 +199,7 @@ See [`vapi/README.md`](vapi/README.md). In short:
 ## Testing
 
 ```bash
-npm test                    # 198 tests: store, MCP stdio, decision engine, orchestrator, Claude phrasing (mocked), API, speech
+npm test                    # 199 tests: store, MCP stdio, decision engine, orchestrator, Claude phrasing (mocked), API, speech
 npm run evaluate            # 11 scenarios against an isolated mock store
 npm run evaluate:supabase   # same, persisted to Supabase with a run_id
 npm run mcp:smoke           # MCP tool contract check over real stdio
