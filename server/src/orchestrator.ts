@@ -1411,7 +1411,7 @@ function latestReferences(userTurns: string[]): { transactionId?: string; payout
 const FAREWELL_PATTERN =
   /\b(no,? (thank you|thanks)|no thanks?|no goodbye|goodbye|bye( bye)?|that('s| is) all|that will be all|nothing else)\b/i;
 const AFFIRMATIVE_PATTERN =
-  /^\s*(y|yes|yeah|yep|yup|sure|ok|okay|please|of course|correct|right|affirmative|go ahead|sounds good)\b/i;
+  /^\s*(y|yes|yeah|yep|yup|sure|ok|okay|please|of course|correct|right|affirmative|go ahead|sounds good|definitely|absolutely|please do|do it|it is|it'?s (correct|right)|that'?s (correct|right)|that is (correct|right))\b/i;
 // A lone "Thank you." / "Thanks." is a closing pleasantry, not a request.
 const BARE_THANKS_PATTERN = /^\s*(thank you|thanks)( so much| very much)?\s*[.!]?\s*$/i;
 const BARE_NEGATIVE = /^\s*(no|nope|nah|no,? it'?s fine|not really|not now)\s*[.!]?\s*$/i;
@@ -1612,18 +1612,24 @@ const TIME_SPAN = new RegExp(TIME_TOKEN.source, "gi");
 export function extractPreferredTime(message: string): { value: string; valid: boolean } | null {
   const matches = [...message.matchAll(new RegExp(TIME_TOKEN.source, "gi"))];
   if (matches.length === 0) return null;
-  const start = matches[0]!.index!;
-  const last = matches[matches.length - 1]!;
-  let value = message.slice(start, last.index! + last[0].length).replace(/\s+/g, " ").trim();
-  if (value.length > 40) value = matches[0]![0];
-  // Read naturally mid-sentence: "noted tomorrow afternoon", but keep
-  // weekday names capitalised ("Monday at 10am").
-  if (!/^(monday|tuesday|wednesday|thursday|friday|saturday|sunday)/i.test(value)) {
-    value = value.charAt(0).toLowerCase() + value.slice(1);
+  // Take the first CONTIGUOUS time phrase ("tomorrow afternoon", "Monday
+  // at 10am"): later matches join only if separated by spaces, commas or
+  // a connector — so "tomorrow afternoon, not goodbye. Not good
+  // afternoon" yields "tomorrow afternoon", not just "tomorrow".
+  const cluster = [matches[0]!];
+  for (const match of matches.slice(1)) {
+    const previous = cluster[cluster.length - 1]!;
+    const gap = message.slice(previous.index! + previous[0].length, match.index!);
+    if (!/^[\s,]*(?:(?:at|on|in the|around|after|before|from)[\s,]+)?$/i.test(gap)) break;
+    cluster.push(match);
   }
+  const start = cluster[0]!.index!;
+  const last = cluster[cluster.length - 1]!;
+  let value = message.slice(start, last.index! + last[0].length).replace(/\s+/g, " ").trim();
+  if (value.length > 40) value = cluster[0]![0];
 
   let valid = true;
-  for (const match of matches) {
+  for (const match of cluster) {
     const clock = match[0].match(/(\d{1,2})(?::(\d{2}))?\s?(am|pm|a\.m\.|p\.m\.)?/i);
     if (!clock) continue;
     const hour = Number(clock[1]);
@@ -1632,5 +1638,11 @@ export function extractPreferredTime(message: string): { value: string; valid: b
     if (minute > 59) valid = false;
     if (meridiem ? hour < 1 || hour > 12 : hour > 23) valid = false;
   }
+  // Read naturally mid-sentence: "noted tomorrow afternoon", but keep
+  // weekday names capitalised ("Monday at 10am").
+  if (!/^(monday|tuesday|wednesday|thursday|friday|saturday|sunday)/i.test(value)) {
+    value = value.charAt(0).toLowerCase() + value.slice(1);
+  }
+
   return { value, valid };
 }

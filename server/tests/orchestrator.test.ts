@@ -781,3 +781,21 @@ describe("typed references without the hyphen", () => {
     expect(result.response).toMatch(/processing/);
   });
 });
+
+describe("live voice call regressions (Morgana call)", () => {
+  it("treats \"It's correct.\" as yes to the ticket offer", async () => {
+    await turn("Check TXN-99999");
+    const second = await turn("It's correct.");
+    expect(second.answerType).toBe("ticket");
+    expect(second.ticketId).toMatch(/^TCK-/);
+  });
+
+  it("keeps the whole callback phrase from a correction sentence", async () => {
+    await turn("My account was restricted, and nobody is helping me.");
+    await turn("My name is Morgana, and my email is Morgana at Yahoo dot com.");
+    const third = await turn("I said tomorrow afternoon, not goodbye. Not good afternoon.");
+    expect(third.response).toMatch(/noted tomorrow afternoon/i);
+    const escalation = persisted().escalations.find((e) => e.conversation_id === conversationId)! as unknown as { preferred_time: string };
+    expect(escalation.preferred_time).toBe("tomorrow afternoon");
+  });
+});
