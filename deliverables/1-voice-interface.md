@@ -6,7 +6,7 @@
 | --- | --- |
 | Voice interface (browser, Vapi web SDK) | https://relaypay-support-agent-1.onrender.com |
 | Voice backend (Vapi assistant webhook target) | https://relaypay-support-agent.onrender.com/vapi/webhook |
-| Vapi assistant ID | `592d5d84-dc72-4ce4-9eb7-589e2f22634e` |
+| Vapi assistant ID | `b4366be4-74ca-4f0a-8c00-e8955848514f` |
 
 ## How to use it
 

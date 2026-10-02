@@ -77,11 +77,18 @@ export function spokenMoney(amount: string | number, currency: string): string {
     // Unparseable amount: keep it verbatim but still expand the currency.
     return `${String(amount)} ${currencyWords}`;
   }
-  const whole = Math.trunc(Math.abs(parsed));
-  const cents = Math.round((Math.abs(parsed) - whole) * 100);
-  let words = parsed < 0 ? `minus ${numberToWords(whole)}` : numberToWords(whole);
-  if (cents > 0) words += ` point ${numberToWords(cents)}`;
-  return `${words} ${currencyWords}`;
+  const absolute = Math.abs(parsed);
+  let whole = Math.trunc(absolute);
+  let cents = Math.round((absolute - whole) * 100);
+  if (cents === 100) {
+    whole += 1;
+    cents = 0;
+  }
+  const sign = parsed < 0 ? "minus " : "";
+  // Money is read the way people say it: "twelve US dollars and five
+  // cents", never "twelve point five" (which would mean 12.50).
+  if (cents === 0) return `${sign}${numberToWords(whole)} ${currencyWords}`;
+  return `${sign}${numberToWords(whole)} ${currencyWords} and ${numberToWords(cents)} ${cents === 1 ? "cent" : "cents"}`;
 }
 
 /** "TXN-9001" -> "T X N nine zero zero one"; returns the input unchanged when it is not a reference. */

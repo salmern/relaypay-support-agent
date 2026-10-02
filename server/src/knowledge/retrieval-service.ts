@@ -19,6 +19,11 @@ export interface GroundedKnowledge {
   /** Assembled approved context for the responder. */
   context: string;
   chunks: Array<{ id: string; title: string; summary: string }>;
+  /** The best-matching chunk — the one the answer is extracted from. */
+  primary: KnowledgeChunk | null;
+  bestScore: number;
+  /** True when the question matched a KB question exactly. */
+  exactFaq: boolean;
   sourceTitle: string;
   sourceSummary: string;
 }
@@ -41,12 +46,12 @@ export class RetrievalService {
           .map((m) => `[${m.chunk.id}] ${m.chunk.title}\n${m.chunk.content}`)
           .join("\n\n---\n\n")
       : "";
+    const sourceTitle = found ? relevant.map((m) => m.chunk.title).join(" + ") : KB_SOURCE_TITLE;
+    const sourceSummary = found
+      ? relevant.map((m) => `${m.chunk.title}: ${m.chunk.summary}`).join(" | ").slice(0, 500)
+      : "No relevant approved knowledge found — agent must not answer from memory";
 
     if (conversationId) {
-      const sourceTitle = found ? this.sourceTitleFor(relevant) : KB_SOURCE_TITLE;
-      const sourceSummary = found
-        ? relevant.map((m) => `${m.chunk.title}: ${m.chunk.summary}`).join(" | ").slice(0, 500)
-        : "No relevant approved knowledge found — agent must not answer from memory";
       await this.store.addRetrievalLog({
         conversation_id: conversationId,
         query,
@@ -61,14 +66,11 @@ export class RetrievalService {
       found,
       context,
       chunks: relevant.map((m) => ({ id: m.chunk.id, title: m.chunk.title, summary: m.chunk.summary })),
-      sourceTitle: found ? this.sourceTitleFor(relevant) : KB_SOURCE_TITLE,
-      sourceSummary: found
-        ? relevant.map((m) => `${m.chunk.title}: ${m.chunk.summary}`).join(" | ").slice(0, 500)
-        : "No relevant approved knowledge found",
+      primary: relevant[0]?.chunk ?? null,
+      bestScore: result.bestScore,
+      exactFaq: result.exactFaq,
+      sourceTitle,
+      sourceSummary,
     };
-  }
-
-  private sourceTitleFor(matches: RetrievalResult["matches"]): string {
-    return matches.map((m) => m.chunk.title).join(" + ");
   }
 }

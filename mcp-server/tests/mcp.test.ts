@@ -190,3 +190,40 @@ describe("audit logging", () => {
     expect(lookupCalls[lookupCalls.length - 1]!.conversation_id).toBe("conv-mcp-test");
   });
 });
+
+describe("audit regressions", () => {
+  it("never returns staff instructions in the customer-safe transaction summary", async () => {
+    const result = await callTool("lookup_transaction", { transaction_id: "TXN-9003" });
+    expect(result.found).toBe(true);
+    expect(String(result.support_summary)).not.toMatch(/escalate/i);
+    expect(String(result.support_summary)).toMatch(/compliance review/i);
+  });
+
+  it("returns the linked customer and transaction for a payout", async () => {
+    const result = await callTool("lookup_payout", { payout_id: "PAY-7003" });
+    expect(result.customer_id).toBe("CUS-1004");
+    expect(result.transaction_id).toBe("TXN-9004");
+  });
+
+  it("adds a callback time given later to the open escalation instead of duplicating it", async () => {
+    const first = await callTool("create_escalation", {
+      user_name: "Amina Jacobs",
+      user_email: "amina@capecloud.example",
+      category: "dispute",
+      reason: "Refund request",
+    });
+    const second = await callTool("create_escalation", {
+      category: "dispute",
+      reason: "Callback time added",
+      preferred_time: "Monday at 10am",
+    });
+    expect(second.escalation_id).toBe(first.escalation_id);
+    const persisted = JSON.parse(await import("node:fs").then((fs) => fs.readFileSync(storePath, "utf8")));
+    const rows = (persisted.escalations as Array<{ escalation_id: string; category: string; call_booked: boolean; preferred_time: string | null; user_email: string }>)
+      .filter((e) => e.category === "dispute");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.preferred_time).toBe("Monday at 10am");
+    expect(rows[0]!.call_booked).toBe(true);
+    expect(rows[0]!.user_email).toBe("amina@capecloud.example");
+  });
+});

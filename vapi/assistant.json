@@ -1,6 +1,6 @@
 {
   "name": "Salman RelayPay Support Agent",
-  "firstMessage": "Hi, thank you for calling RelayPay support. My name is Sarah, and I'm happy to help with payments, payouts, invoices, or any questions about RelayPay. What can I do for you today?",
+  "firstMessage": "Hi, thank you for calling RelayPay support. I'm Sarah, RelayPay's virtual support assistant. I can help with payments, payouts, invoices, or any questions about RelayPay. What can I do for you today?",
   "firstMessageMode": "assistant-speaks-first",
   "maxDurationSeconds": 600,
   "silenceTimeoutSeconds": 20,
@@ -33,7 +33,9 @@
                 "description": "The customer's message, word for word."
               }
             },
-            "required": ["transcript"]
+            "required": [
+              "transcript"
+            ]
           }
         },
         "messages": [
@@ -67,12 +69,30 @@
     "stability": 0.6,
     "similarityBoost": 0.75
   },
-  "clientMessages": ["transcript", "speech-update", "status-update", "conversation-update"],
-  "serverMessages": ["end-of-call-report", "status-update", "tool-calls"],
-  "artifactPlan": { "recordingEnabled": false, "videoRecordingEnabled": false },
+  "clientMessages": [
+    "transcript",
+    "speech-update",
+    "status-update",
+    "conversation-update"
+  ],
+  "serverMessages": [
+    "end-of-call-report",
+    "status-update",
+    "tool-calls"
+  ],
+  "artifactPlan": {
+    "recordingEnabled": false,
+    "videoRecordingEnabled": false
+  },
   "analysisPlan": {
-    "summaryPlan": { "enabled": false },
-    "successEvaluationPlan": { "enabled": false },
-    "structuredDataPlan": { "enabled": false }
+    "summaryPlan": {
+      "enabled": false
+    },
+    "successEvaluationPlan": {
+      "enabled": false
+    },
+    "structuredDataPlan": {
+      "enabled": false
+    }
   }
 }

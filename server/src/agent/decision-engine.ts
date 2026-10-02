@@ -15,7 +15,10 @@ export type Intent =
   | "transaction_lookup"
   | "payout_lookup"
   | "ticket"
-  | "escalation";
+  | "escalation"
+  | "greeting"
+  | "general_help"
+  | "restricted_request";
 
 export interface IntentSignals {
   /** Company name or customer id present in the message. */
@@ -29,6 +32,10 @@ export interface Decision {
   intent: Intent;
   /** Escalation category when action === "escalate". */
   escalationCategory?: EscalationCategory;
+  /** Which escalation trigger fired (for empathetic phrasing). */
+  escalationTrigger?: string;
+  /** Why a decline happened: no approved knowledge, privacy, or out of scope. */
+  declineKind?: "no_knowledge" | "privacy" | "scope";
   /** Why this decision was made (for audit logs). */
   rationale: string;
   /** The single clarifying question to ask when action === "clarify". */
@@ -66,6 +73,12 @@ export const ESCALATION_TRIGGERS: Array<{
     reason: "Compliance or identity-verification concern",
   },
   {
+    name: "balance",
+    pattern: /\b(my|our) (account |current |available )?balance\b|\bhow much (money )?(do|have) (i|we) (have|got)\b/i,
+    category: "account",
+    reason: "Account-specific balance request (never read out; needs a specialist)",
+  },
+  {
     name: "frustration",
     pattern: /\b(angry|furious|unacceptable|terrible|worst|nobody (is )?(helping|listening|responding)|no ?body is helping|sick of|fed up|frustrat\w*|this is urgent|speak to (a )?(human|manager|supervisor|real person))\b/i,
     category: "other",
@@ -82,7 +95,40 @@ const GUARANTEE_INTENT = /\bguarantee\b/i;
 const FEES_INTENT = /\b(fee|fees|charge|charges|charged|pricing|price|prices|cost|costs)\b/i;
 const TICKET_INTENT = /\b(ticket|complaint|report (a |this )?problem|look into|look at it|someone (to )?(look|check|help)|need (someone|a person) to|investigate)\b/i;
 
+// Attempts to override the agent's rules ("ignore previous instructions").
+const INJECTION =
+  /\b(ignore|disregard|forget|override|bypass)\b.{0,40}\b(instructions|rules|prompt|guidelines|guardrails|restrictions)\b|\bsystem prompt\b|\bdeveloper mode\b|\bjailbreak\b|\bpretend (to be|you are|you're)\b|\byou are now\b|\bact as (a|an|my|the)\b|\breveal (your|the) (prompt|instructions|rules)\b/i;
+// Requests to read out personal or internal data (anyone's).
+const SENSITIVE_FIELD =
+  /\b(e-?mail(?: address)?|phone(?: number)?|mobile number|password|passcode|pin|card number|account number|iban|swift code|routing number|bank details|home address|contact details|support notes|internal notes|personal (?:details|data|information))\b/i;
+const DISCLOSURE_VERB =
+  /\b(what(?:'s| is| are)|give|tell|read|share|send|show|list|print|reveal|disclose|look up|find|get)\b/i;
+const GIVING_OWN_DETAILS = /\b(my|our)\s+(e-?mail|phone|name)(?: address| number)?\s+(is|'s)\b/i;
+const GREETING_ONLY =
+  /^(hi|hello|hey|hiya|howdy|greetings|good (morning|afternoon|evening))( (there|relaypay|team|sarah))?$/i;
+const PRESENCE_ONLY =
+  /^(hello|can you hear me|are you there|is anyone there|is this working|testing|test|hm+|um+|uh+|er+|mm+|ok(ay)?|right)$/i;
+const HELP_ONLY =
+  /^\s*(help|help me|please help|i need (some )?help|can you help( me)?|i have a (question|problem|issue)|support|question|problem|issue)[\s.!?]*$/i;
+
+/** True when every sentence of the message is a greeting or a "can you hear me" check. */
+export function isGreetingOrPresence(message: string): boolean {
+  const parts = message.toLowerCase().split(/[.!?,]+/).map((p) => p.trim()).filter(Boolean);
+  return parts.length > 0 && parts.every((p) => GREETING_ONLY.test(p) || PRESENCE_ONLY.test(p));
+}
+
+export function isPromptInjection(message: string): boolean {
+  return INJECTION.test(message);
+}
+
+export function isSensitiveDataRequest(message: string): boolean {
+  return SENSITIVE_FIELD.test(message) && DISCLOSURE_VERB.test(message) && !GIVING_OWN_DETAILS.test(message);
+}
+
 export function classifyIntent(message: string): Intent {
+  // Rule-override attempts and requests for personal/internal data are
+  // refused before anything else runs.
+  if (isPromptInjection(message) || isSensitiveDataRequest(message)) return "restricted_request";
   // Escalation language dominates everything else.
   for (const trigger of ESCALATION_TRIGGERS) {
     if (trigger.pattern.test(message)) return "escalation";
@@ -104,6 +150,8 @@ export function classifyIntent(message: string): Intent {
   if (FEES_INTENT.test(message)) return "knowledge";
   if (GENERIC_PAYMENT.test(message)) return "transaction_lookup";
   if (ACCOUNT_INTENT.test(message)) return "account_lookup";
+  if (isGreetingOrPresence(message)) return "greeting";
+  if (HELP_ONLY.test(message)) return "general_help";
   return "knowledge";
 }
 
@@ -113,6 +161,19 @@ export function decide(
 ): Decision {
   const intent = classifyIntent(message);
 
+  // 0. Refusals: rule-override attempts and personal-data requests.
+  if (intent === "restricted_request") {
+    const injection = isPromptInjection(message);
+    return {
+      action: "decline",
+      intent,
+      declineKind: injection ? "scope" : "privacy",
+      rationale: injection
+        ? "Message tries to override the support rules — refused"
+        : "Request to disclose personal or internal data — refused",
+    };
+  }
+
   // 1. Escalation triggers first — never guess on these.
   for (const trigger of ESCALATION_TRIGGERS) {
     if (trigger.pattern.test(message)) {
@@ -120,12 +181,29 @@ export function decide(
         action: "escalate",
         intent,
         escalationCategory: trigger.category,
+        escalationTrigger: trigger.name,
         rationale: `Escalation trigger '${trigger.name}': ${trigger.reason}`,
       };
     }
   }
 
   switch (intent) {
+    case "greeting":
+      return {
+        action: "clarify",
+        intent,
+        rationale: "Greeting or presence check — introduce and ask what the customer needs",
+      };
+
+    case "general_help":
+      return {
+        action: "clarify",
+        intent,
+        rationale: "Request too vague to route — ask which area it concerns",
+        clarifyingQuestion:
+          "Is it about a payment or payout, an invoice, your account, or a general question about RelayPay?",
+      };
+
     case "payout_lookup":
     case "transaction_lookup": {
       if (!signals.hasReference) {
@@ -177,6 +255,36 @@ export function decide(
         rationale: "General question — answer from approved knowledge",
       };
   }
+}
+
+/**
+ * A reference number given without its prefix but with an explicit cue
+ * ("transaction 9001", "payout number 7003", "reference is 9005"). Only
+ * used when the message has no prefixed reference; the reply names the
+ * canonical ID it checked, so the customer can correct it.
+ */
+export function extractBareReference(text: string, intent: Intent): { transactionId?: string; payoutId?: string } {
+  const match = text.match(/\b(transaction|payment|transfer|reference|ref|payout|id|number)\s+(?:number\s+|id\s+|is\s+|no\.?\s+)?#?(\d{4,6})\b/i);
+  if (!match) return {};
+  const digits = match[2]!;
+  if (intent === "payout_lookup" || /payout/i.test(match[1]!)) return { payoutId: `PAY-${digits}` };
+  if (intent === "transaction_lookup" || intent === "ticket") return { transactionId: `TXN-${digits}` };
+  return {};
+}
+
+/**
+ * True when the message seems to contain a reference we could not parse
+ * ("payout ninety oh one", "TXN 9-0"). The orchestrator must then ask the
+ * customer to repeat it instead of silently reusing an older reference.
+ */
+export function hasUnparsedReference(text: string): boolean {
+  const refs = extractReferences(text);
+  if (refs.transactionId || refs.payoutId || refs.customerId) return false;
+  return /\d{3,}/.test(text) ||
+    /\b\d(?:\s\d){2,}\b/.test(text) ||
+    /\b(txn|t x n|pay|payout)\s*[-#:]?\s*\d/i.test(text) ||
+    /\b(txn|t x n)\b/i.test(text) ||
+    /(?:\b(?:zero|oh|one|two|three|four|five|six|seven|eight|nine|hundred|thousand)\b[\s,-]*){3,}/i.test(text);
 }
 
 /** Extracts structured references (TXN-####, PAY-####, CUS-####) from text. */
@@ -295,7 +403,12 @@ function canonicalPrefix(prefix: string): "TXN" | "PAY" | "CUS" {
   return "PAY"; // "pay" and "payout"
 }
 
-export function normalizeVoiceReferences(text: string): string {
+export function normalizeVoiceReferences(input: string): string {
+  // "payout PAY 7 0 0 3" / "payout pay 7003": the noun "payout" followed
+  // by the spoken PAY prefix would otherwise swallow the prefix as an
+  // unparseable tail, leaving no reference at all (which once let an
+  // older reference from the conversation be used instead).
+  const text = input.replace(/\bpay\s?out\s+(?=p\s?a\s?y\b(?!-\d))/gi, "");
   // Fused alphanumerics: STT often merges the prefix with the digits and
   // drops the separator entirely ("txn001", "pay7002"). The word-boundary
   // in the main pattern below cannot match inside those, so rewrite them

@@ -37,7 +37,9 @@ export class SupabaseStore implements Store {
     let query = this.client.from("customers").select("*");
     if (input.customer_id) query = query.eq("customer_id", input.customer_id.trim().toUpperCase());
     else if (input.email) query = query.eq("contact_email", input.email.trim().toLowerCase());
-    else if (input.company_name) query = query.ilike("company_name", input.company_name.trim());
+    // ilike gives a case-insensitive EXACT match only when the LIKE
+    // wildcards in user input are escaped ("%" would match every row).
+    else if (input.company_name) query = query.ilike("company_name", escapeLike(input.company_name.trim()));
     else return null;
     const { data, error } = await query.limit(1);
     if (error) throw new Error(`Supabase customer lookup failed: ${error.message}`);
@@ -68,15 +70,27 @@ export class SupabaseStore implements Store {
   }
 
   async createConversation(input: { conversation_id: string; channel: "voice" | "text"; caller_identifier?: string | null }): Promise<Conversation> {
-    const now = new Date().toISOString();
+    // Insert-if-missing. This runs on EVERY turn, so it must never touch
+    // an existing row: an upsert here used to reset started_at and wipe
+    // caller_identifier on each turn.
+    const existing = await this.getConversation(input.conversation_id);
+    if (existing) return existing;
     const row = {
       id: input.conversation_id,
       channel: input.channel,
       caller_identifier: input.caller_identifier ?? null,
-      started_at: now,
+      started_at: new Date().toISOString(),
+      final_status: "active",
     };
-    const { data, error } = await this.client.from("conversations").upsert(row).select().single();
-    if (error) throw new Error(`Supabase createConversation failed: ${error.message}`);
+    const { data, error } = await this.client.from("conversations").insert(row).select().single();
+    if (error) {
+      // Unique violation: a concurrent turn created it first.
+      if (error.code === "23505") {
+        const raced = await this.getConversation(input.conversation_id);
+        if (raced) return raced;
+      }
+      throw new Error(`Supabase createConversation failed: ${error.message}`);
+    }
     return data as Conversation;
   }
 
@@ -97,7 +111,18 @@ export class SupabaseStore implements Store {
 
   async addTurn(turn: Omit<ConversationTurn, "created_at">): Promise<ConversationTurn> {
     const row = { ...turn, created_at: new Date().toISOString() };
-    const { data, error } = await this.client.from("conversation_turns").insert(row).select().single();
+    let { data, error } = await this.client.from("conversation_turns").insert(row).select().single();
+    if (error && error.code === "23514" && turn.answer_type === "closing") {
+      // Schema without migration 002 rejects the 'closing' answer type.
+      // Keep the turn (the audit trail matters more than the label) and
+      // say so in the uncertainty note instead of failing the whole turn.
+      process.stderr.write("[store] answer_type 'closing' rejected — apply supabase/migrations/002_audit_fixes.sql\n");
+      ({ data, error } = await this.client
+        .from("conversation_turns")
+        .insert({ ...row, answer_type: "clarification", uncertainty_note: "closing turn (schema pending migration 002)" })
+        .select()
+        .single());
+    }
     if (error) throw new Error(`Supabase addTurn failed: ${error.message}`);
     return data as ConversationTurn;
   }
@@ -167,7 +192,7 @@ export class SupabaseStore implements Store {
 
   async updateEscalationContact(
     escalation_id: string,
-    contact: { user_name?: string | null; user_email?: string | null; preferred_time?: string | null },
+    contact: { user_name?: string | null; user_email?: string | null; preferred_time?: string | null; customer_id?: string | null; ticket_id?: string | null },
   ): Promise<Escalation | null> {
     const patch: Record<string, string | null | boolean> = {};
     if (contact.user_name !== undefined && contact.user_name !== null) patch.user_name = contact.user_name;
@@ -176,6 +201,8 @@ export class SupabaseStore implements Store {
       patch.preferred_time = contact.preferred_time;
       patch.call_booked = true;
     }
+    if (contact.customer_id) patch.customer_id = contact.customer_id;
+    if (contact.ticket_id) patch.ticket_id = contact.ticket_id;
     if (Object.keys(patch).length === 0) return this.getEscalation(escalation_id);
     const { data, error } = await this.client
       .from("escalations")
@@ -200,7 +227,17 @@ export class SupabaseStore implements Store {
 
   async addEvaluation(record: Omit<EvaluationRecord, "created_at">): Promise<EvaluationRecord> {
     const row = { ...record, created_at: new Date().toISOString() };
-    const { data, error } = await this.client.from("evaluations").insert(row).select().single();
+    let { data, error } = await this.client.from("evaluations").insert(row).select().single();
+    if (error && /run_id/.test(error.message)) {
+      // Schema without migration 002 has no run_id column: keep the
+      // record and fold the run id into the notes instead.
+      const { run_id, ...rest } = row;
+      ({ data, error } = await this.client
+        .from("evaluations")
+        .insert({ ...rest, notes: `[run ${run_id ?? "?"}] ${rest.notes}` })
+        .select()
+        .single());
+    }
     if (error) throw new Error(`Supabase addEvaluation failed: ${error.message}`);
     return data as EvaluationRecord;
   }
@@ -285,4 +322,9 @@ export class SupabaseStore implements Store {
     }
     return { seeded: true };
   }
+}
+
+/** Escapes LIKE/ILIKE wildcards so user input matches literally. */
+function escapeLike(value: string): string {
+  return value.replace(/[\\%_]/g, (ch) => `\\${ch}`);
 }

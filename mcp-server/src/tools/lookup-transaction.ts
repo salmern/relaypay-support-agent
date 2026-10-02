@@ -32,11 +32,23 @@ export async function handleLookupTransaction(
       amount: transaction.amount,
       currency: transaction.currency,
       estimated_arrival: transaction.estimated_arrival ?? "",
-      support_summary: transaction.support_summary,
+      support_summary: customerSafeSummary(transaction.support_summary),
     };
   });
   if (!outcome.ok) {
     return { found: false as const, transaction_id: input.transaction_id, error: outcome.error };
   }
   return outcome.result;
+}
+
+/**
+ * The seed `support_summary` is meant to be customer-safe, but some rows
+ * carry staff instructions ("Escalate account-specific questions."). Drop
+ * any sentence addressed to support staff so it can never be read out to
+ * a customer; the orchestrator owns the escalation decision itself.
+ */
+export function customerSafeSummary(summary: string): string {
+  const sentences = summary.split(/(?<=[.!?])\s+/).filter(Boolean);
+  const safe = sentences.filter((sentence) => !/\b(escalate|internal|support team should|agents? should)\b/i.test(sentence));
+  return safe.join(" ").trim();
 }

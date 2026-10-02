@@ -1,6 +1,6 @@
 /**
  * Vapi web SDK wrapper: connection, listening and speaking state,
- * live transcript events. Only the PUBLIC key is used here.
+ * live transcript events and the call id. Only the PUBLIC key is used here.
  */
 import * as VapiNamespace from "@vapi-ai/web";
 
@@ -32,9 +32,10 @@ export interface TranscriptEntry {
 
 export interface VapiEvents {
   onCallState: (state: CallState) => void;
-  onListeningChange: (listening: boolean) => void;
-  onSpeakingChange: (speaking: boolean) => void;
+  onAssistantSpeaking: (speaking: boolean) => void;
   onTranscript: (entry: TranscriptEntry) => void;
+  /** The Vapi call id — the backend logs the voice conversation under it. */
+  onCallId: (callId: string) => void;
   onError: (message: string) => void;
 }
 
@@ -49,20 +50,26 @@ export class VapiVoiceClient {
   /** Starts a call with the configured assistant. Returns false when Vapi is not configured. */
   start(apiKey: string, assistantId: string): boolean {
     if (!apiKey || !assistantId) {
-      this.events.onError(
-        "Voice is not configured yet. Set VITE_VAPI_PUBLIC_KEY and VITE_VAPI_ASSISTANT_ID (see README), or use the text test mode below.",
-      );
+      this.events.onError("Voice support isn't available right now. Please use the text chat instead.");
       return false;
     }
     try {
       this.vapi = new VapiCtor(apiKey);
       this.wireEvents();
       this.events.onCallState("connecting");
-      void this.vapi.start(assistantId);
+      this.vapi
+        .start(assistantId)
+        .then((call) => {
+          if (call?.id) this.events.onCallId(call.id);
+        })
+        .catch((error: unknown) => {
+          this.events.onCallState("error");
+          this.events.onError(describeError(error, "Could not start the call. Check your microphone permission and try again."));
+        });
       return true;
     } catch (error) {
       this.events.onCallState("error");
-      this.events.onError(error instanceof Error ? error.message : "Failed to start the call");
+      this.events.onError(describeError(error, "Could not start the call."));
       return false;
     }
   }
@@ -75,59 +82,50 @@ export class VapiVoiceClient {
     }
     this.vapi = null;
     this.events.onCallState("idle");
-    this.events.onListeningChange(false);
-    this.events.onSpeakingChange(false);
+    this.events.onAssistantSpeaking(false);
   }
 
   private wireEvents(): void {
     if (!this.vapi) return;
-    this.vapi.on("call-start", () => {
-      this.events.onCallState("connected");
-    });
+    this.vapi.on("call-start", () => this.events.onCallState("connected"));
     this.vapi.on("call-end", () => {
       this.events.onCallState("idle");
-      this.events.onListeningChange(false);
-      this.events.onSpeakingChange(false);
+      this.events.onAssistantSpeaking(false);
     });
-    this.vapi.on("speech-start", () => {
-      this.events.onSpeakingChange(true);
-      this.events.onListeningChange(false);
-    });
-    this.vapi.on("speech-end", () => {
-      this.events.onSpeakingChange(false);
-      this.events.onListeningChange(true);
-    });
-    this.vapi.on("volume-level", (level: number) => {
-      // While the customer speaks (mic input), Vapi reports volume levels.
-      if (level > 0.05) this.events.onListeningChange(true);
-    });
+    // speech-start/end describe the ASSISTANT's audio. (Note: the SDK's
+    // `volume-level` event is the assistant's output level too, not the
+    // microphone — it must not drive a "listening" indicator.)
+    this.vapi.on("speech-start", () => this.events.onAssistantSpeaking(true));
+    this.vapi.on("speech-end", () => this.events.onAssistantSpeaking(false));
     this.vapi.on("message", (message: { type: string; role?: string; transcriptType?: string; transcript?: string }) => {
       if (
         message.type === "transcript" &&
         (message.role === "user" || message.role === "assistant") &&
         message.transcript
       ) {
-        // Interim (partial) results update the live bubble in place —
-        // like film subtitles — and the final result commits it. This
-        // removes the delay where captions only appeared after the
-        // voice finished speaking the whole sentence.
-        const partial = message.transcriptType !== "final";
+        // Interim results update the live bubble in place, like subtitles;
+        // the final result commits it.
         this.events.onTranscript({
           role: message.role,
           text: message.transcript,
-          partial,
+          partial: message.transcriptType !== "final",
         });
       }
     });
     this.vapi.on("error", (error: unknown) => {
       this.events.onCallState("error");
-      const message =
-        error instanceof Error
-          ? error.message
-          : typeof error === "object" && error !== null && "errorMsg" in error
-            ? String((error as { errorMsg: unknown }).errorMsg)
-            : "Voice connection error";
-      this.events.onError(message);
+      this.events.onError(describeError(error, "The voice connection was interrupted. Please start the call again."));
     });
   }
+}
+
+function describeError(error: unknown, fallback: string): string {
+  if (typeof error === "object" && error !== null && "errorMsg" in error) {
+    const message = String((error as { errorMsg: unknown }).errorMsg);
+    if (/permission|notallowed/i.test(message)) return "Microphone access was blocked. Allow the microphone in your browser and try again.";
+  }
+  if (error instanceof Error && /permission|notallowed/i.test(error.message)) {
+    return "Microphone access was blocked. Allow the microphone in your browser and try again.";
+  }
+  return fallback;
 }

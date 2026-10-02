@@ -58,7 +58,14 @@ Notes:
 
 - The outer Anthropic model in this config is only the voice router —
   it is instructed to delegate every message to `support_agent` and
-  repeat the result verbatim. All decisions, retrieval, and tool calls
-  happen in our backend through the Claude Agent SDK.
+  repeat the result verbatim. All decisions, retrieval and tool calls
+  happen in our backend: the deterministic decision engine decides, the
+  orchestrator calls the MCP tools, and the Claude Agent SDK words the
+  reply (when `ANTHROPIC_API_KEY` is set on the backend).
 - `end-of-call-report` server messages close the conversation record in
-  Supabase.
+  Supabase and free the conversation's MCP subprocess.
+- The greeting introduces the assistant as RelayPay's *virtual* support
+  assistant, so callers know they are talking to an AI. After editing
+  `assistant.json`, run `npm run vapi:setup` to push it to Vapi.
+- The web app reads the call id from `vapi.start()` and shows each turn's
+  activity from `GET /api/conversations/:callId/activity`.

@@ -68,6 +68,7 @@ export type AnswerType =
   | "ticket"
   | "escalation"
   | "decline"
+  | "closing"
   | "error";
 
 export interface ConversationTurn {
@@ -142,6 +143,8 @@ export interface Escalation {
 export type EvaluationVerdict = "pass" | "fail";
 
 export interface EvaluationRecord {
+  /** Groups the records of one `npm run evaluate` run. */
+  run_id?: string | null;
   scenario: string;
   expected_behavior: string;
   actual_behavior: string;

@@ -32,6 +32,8 @@ export async function handleLookupPayout(
     return {
       found: true as const,
       payout_id: payout.payout_id,
+      customer_id: payout.customer_id,
+      transaction_id: payout.transaction_id,
       status: payout.status,
       scheduled_for: payout.scheduled_for,
       failure_reason: payout.failure_reason ?? "",

@@ -82,38 +82,103 @@ describe("service card and webhook explainer", () => {
   });
 });
 
+async function newConversation() {
+  const created = await app.inject({ method: "POST", url: "/api/conversations", payload: {} });
+  const body = created.json() as { conversation_id: string; conversation_token: string };
+  return { id: body.conversation_id, headers: { "x-conversation-token": body.conversation_token } };
+}
+
 describe("text channel", () => {
   it("rejects empty messages", async () => {
-    const created = await app.inject({
-      method: "POST",
-      url: "/api/conversations",
-      payload: { channel: "text" },
-    });
-    const { conversation_id } = created.json() as { conversation_id: string };
-    const res = await app.inject({
-      method: "POST",
-      url: `/api/conversations/${conversation_id}/turns`,
-      payload: { message: "   " },
-    });
+    const { id, headers } = await newConversation();
+    const res = await app.inject({ method: "POST", url: `/api/conversations/${id}/turns`, headers, payload: { message: "   " } });
     expect(res.statusCode).toBe(400);
   });
 
-  it("runs a grounded knowledge turn end-to-end", async () => {
-    const created = await app.inject({
-      method: "POST",
-      url: "/api/conversations",
-      payload: { channel: "text" },
-    });
-    const { conversation_id } = created.json() as { conversation_id: string };
+  it("rejects non-string messages with 400, not 500", async () => {
+    const { id, headers } = await newConversation();
+    const res = await app.inject({ method: "POST", url: `/api/conversations/${id}/turns`, headers, payload: { message: 123 } });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("runs a grounded knowledge turn end-to-end and returns its activity", async () => {
+    const { id, headers } = await newConversation();
     const res = await app.inject({
       method: "POST",
-      url: `/api/conversations/${conversation_id}/turns`,
+      url: `/api/conversations/${id}/turns`,
+      headers,
       payload: { message: "How do I create a RelayPay account?" },
     });
     expect(res.statusCode).toBe(201);
-    const body = res.json() as { answer_type: string; response: string };
+    const body = res.json() as { answer_type: string; response: string; activity: { retrieval: { knowledge_chunks: string[] } } };
     expect(body.answer_type).toBe("knowledge");
     expect(body.response).toContain("signing up");
+    expect(body.activity.retrieval.knowledge_chunks.length).toBeGreaterThan(0);
+  });
+
+  it("returns the lookup tool call in the turn activity (the audit trail the UI shows)", async () => {
+    const { id, headers } = await newConversation();
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/conversations/${id}/turns`,
+      headers,
+      payload: { message: "Can you check transaction TXN-9001?" },
+    });
+    const body = res.json() as { activity: { tool_calls: Array<{ tool_name: string; status: string }> } };
+    expect(body.activity.tool_calls.some((c) => c.tool_name === "lookup_transaction" && c.status === "success")).toBe(true);
+
+    const activity = await app.inject({ method: "GET", url: `/api/conversations/${id}/activity`, headers });
+    expect(activity.statusCode).toBe(200);
+    const view = activity.json() as { turns: Array<{ tool_calls: Array<{ tool_name: string }> }> };
+    expect(view.turns[0]!.tool_calls.some((c) => c.tool_name === "lookup_transaction")).toBe(true);
+  });
+
+  it("requires the conversation token for turns, ending and activity", async () => {
+    const { id } = await newConversation();
+    const turnRes = await app.inject({ method: "POST", url: `/api/conversations/${id}/turns`, payload: { message: "hi" } });
+    expect(turnRes.statusCode).toBe(401);
+    const endRes = await app.inject({ method: "POST", url: `/api/conversations/${id}/end`, headers: { "x-conversation-token": "wrong" } });
+    expect(endRes.statusCode).toBe(401);
+    const activity = await app.inject({ method: "GET", url: `/api/conversations/${id}/activity` });
+    expect(activity.statusCode).toBe(401);
+  });
+
+  it("never lets the text channel post into a voice conversation", async () => {
+    await store.createConversation({ conversation_id: "call-protected", channel: "voice" });
+    // Even a correctly-shaped token for that id is refused: the id is not a text conversation.
+    const created = await app.inject({ method: "POST", url: "/api/conversations", payload: {} });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/conversations/call-protected/turns",
+      headers: { "x-conversation-token": (created.json() as { conversation_token: string }).conversation_token },
+      payload: { message: "hi" },
+    });
+    expect([401, 404]).toContain(res.statusCode);
+  });
+
+  it("hides internal error details from the customer", async () => {
+    const { id, headers } = await newConversation();
+    const broken = buildApp({
+      store: { ...store, getConversation: store.getConversation.bind(store), createConversation: async () => { throw new Error("db password=hunter2 unreachable"); } } as never,
+      knowledgeChunks: chunks,
+      conversationTokenSecret: undefined,
+      vapiServerSecret: "test-secret",
+    });
+    await broken.ready();
+    const res = await broken.inject({ method: "POST", url: `/api/conversations/${id}/turns`, headers, payload: { message: "hi" } });
+    await broken.close();
+    expect(res.body).not.toContain("hunter2");
+  });
+
+  it("rate-limits a burst from one client", async () => {
+    const limited = buildApp({ store, knowledgeChunks: chunks, vapiServerSecret: "test-secret", rateLimitPerMinute: 2 });
+    await limited.ready();
+    const codes: number[] = [];
+    for (let i = 0; i < 3; i += 1) {
+      codes.push((await limited.inject({ method: "POST", url: "/api/conversations", payload: {} })).statusCode);
+    }
+    await limited.close();
+    expect(codes).toEqual([201, 201, 429]);
   });
 });
 
@@ -304,6 +369,17 @@ describe("debug endpoints", () => {
   it("keeps non-debug endpoints open when DEBUG_TOKEN is configured", async () => {
     const res = await guardedApp.inject({ method: "GET", url: "/api/health" });
     expect(res.statusCode).toBe(200);
+  });
+
+  it("disables debug endpoints in production when no DEBUG_TOKEN is set", async () => {
+    const prod = buildApp({ store, knowledgeChunks: chunks, vapiServerSecret: "test-secret", production: true, debugToken: undefined });
+    await prod.ready();
+    const previous = process.env.DEBUG_TOKEN;
+    delete process.env.DEBUG_TOKEN;
+    const res = await prod.inject({ method: "GET", url: "/api/debug/conversations" });
+    if (previous !== undefined) process.env.DEBUG_TOKEN = previous;
+    await prod.close();
+    expect(res.statusCode).toBe(404);
   });
 
   it("404s for unknown conversations", async () => {

@@ -37,7 +37,16 @@ async function main(): Promise<void> {
     corsOrigins,
     vapiServerSecret: process.env.VAPI_SERVER_SECRET,
     debugToken: process.env.DEBUG_TOKEN,
+    conversationTokenSecret: process.env.CONVERSATION_TOKEN_SECRET,
+    // Render sets RENDER=true; debug endpoints are disabled there unless
+    // DEBUG_TOKEN is configured.
+    production: process.env.NODE_ENV === "production" || process.env.RENDER === "true",
   });
+  if (!process.env.CONVERSATION_TOKEN_SECRET && !process.env.DEBUG_TOKEN && !process.env.VAPI_SERVER_SECRET) {
+    process.stderr.write(
+      "[server] no CONVERSATION_TOKEN_SECRET/DEBUG_TOKEN/VAPI_SERVER_SECRET set — conversation tokens use a per-process secret and reset on restart\n",
+    );
+  }
   await app.listen({ port, host: "0.0.0.0" });
   process.stdout.write(
     `RelayPay support agent API listening on :${port} ` +
@@ -46,7 +55,6 @@ async function main(): Promise<void> {
   );
 }
 
-// Touch a marker file so `npm run dev` output shows the server booted.
 process.on("SIGINT", () => process.exit(0));
 process.on("SIGTERM", () => process.exit(0));
 

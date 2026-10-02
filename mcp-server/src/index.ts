@@ -6,7 +6,7 @@
  *   create_support_ticket, create_escalation, log_conversation_event
  *
  * Every call is audited to the tool_calls table. The conversation scope
- * is provided by the orchestrator via RELAYPAY_CONVERSATION_ID.
+ * is provided by the orchestrator via --conversation-id (or RELAYPAY_CONVERSATION_ID).
  */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -43,13 +43,17 @@ import {
   handleLogEvent,
 } from "./tools/log-event.js";
 
-const conversationId = process.env.RELAYPAY_CONVERSATION_ID ?? "";
+// Conversation scope: `--conversation-id <id>` (preferred — keeps the
+// environment off any command line) or RELAYPAY_CONVERSATION_ID.
+const argIndex = process.argv.indexOf("--conversation-id");
+const conversationId =
+  (argIndex >= 0 ? process.argv[argIndex + 1] : undefined) ?? process.env.RELAYPAY_CONVERSATION_ID ?? "";
 
 const store = createStore();
 
 const ctx: ToolContext = {
   store,
-  getConversationId: () => process.env.RELAYPAY_CONVERSATION_ID ?? conversationId,
+  getConversationId: () => conversationId,
 };
 
 const server = new McpServer({

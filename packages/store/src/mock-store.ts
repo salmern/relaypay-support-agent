@@ -212,11 +212,18 @@ export class MockFileStore implements Store {
       caller_identifier: input.caller_identifier ?? null,
       started_at: new Date().toISOString(),
       ended_at: null,
-      final_status: null,
+      final_status: "active",
       summary: null,
     };
-    this.mutate((data) => data.conversations.push(conversation));
-    return conversation;
+    // Insert-if-missing under the lock: a concurrent creator may have won
+    // the race since the read above.
+    let stored = conversation;
+    this.mutate((data) => {
+      const raced = data.conversations.find((c) => c.id === input.conversation_id);
+      if (raced) stored = raced;
+      else data.conversations.push(conversation);
+    });
+    return stored;
   }
 
   async getConversation(id: string): Promise<Conversation | null> {
@@ -294,7 +301,7 @@ export class MockFileStore implements Store {
 
   async updateEscalationContact(
     escalation_id: string,
-    contact: { user_name?: string | null; user_email?: string | null; preferred_time?: string | null },
+    contact: { user_name?: string | null; user_email?: string | null; preferred_time?: string | null; customer_id?: string | null; ticket_id?: string | null },
   ): Promise<Escalation | null> {
     let updated: Escalation | null = null;
     this.mutate((data) => {
@@ -306,6 +313,8 @@ export class MockFileStore implements Store {
         row.preferred_time = contact.preferred_time;
         row.call_booked = true;
       }
+      if (contact.customer_id) row.customer_id = contact.customer_id;
+      if (contact.ticket_id) row.ticket_id = contact.ticket_id;
       updated = row;
     });
     return updated;

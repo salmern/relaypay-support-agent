@@ -42,31 +42,31 @@ export async function handleCreateEscalation(
       (e) => e.category === category && e.status === "open",
     );
     if (existing) {
-      const providesContact = Boolean(input.user_email && !existing.user_email);
-      if (providesContact) {
-        const updated = await ctx.store.updateEscalationContact(existing.escalation_id, {
-          user_name: input.user_name ?? null,
-          user_email: input.user_email ?? null,
-          preferred_time: input.preferred_time ?? null,
-        });
-        return {
-          escalation_id: existing.escalation_id,
-          status: updated?.status ?? existing.status,
-          follow_up_summary:
-            "A RelayPay support specialist will follow up with the customer" +
-            (updated?.preferred_time ? ` at the requested time (${updated.preferred_time})` : "") +
-            ".",
-          contact_recorded: true,
-        };
-      }
+      // Fill in whatever the existing record is still missing: contact
+      // details, a callback time given in a later turn, or the customer /
+      // ticket link. Fields already on the record are never overwritten.
+      const patch = {
+        user_name: !existing.user_name && input.user_name ? input.user_name : null,
+        user_email: !existing.user_email && input.user_email ? input.user_email : null,
+        preferred_time: !existing.preferred_time && input.preferred_time ? input.preferred_time : null,
+      };
+      const linkPatch = {
+        customer_id: !existing.customer_id && input.customer_id ? input.customer_id : null,
+        ticket_id: !existing.ticket_id && input.ticket_id ? input.ticket_id : null,
+      };
+      const enriches = Object.values(patch).some(Boolean) || Object.values(linkPatch).some(Boolean);
+      const updated = enriches
+        ? await ctx.store.updateEscalationContact(existing.escalation_id, { ...patch, ...linkPatch })
+        : existing;
+      const record = updated ?? existing;
       return {
         escalation_id: existing.escalation_id,
-        status: existing.status,
+        status: record.status,
         follow_up_summary:
           "A RelayPay support specialist will follow up with the customer" +
-          (existing.preferred_time ? ` at the requested time (${existing.preferred_time})` : "") +
+          (record.preferred_time ? ` at the requested time (${record.preferred_time})` : "") +
           ".",
-        duplicate_prevented: true,
+        ...(enriches ? { contact_recorded: true } : { duplicate_prevented: true }),
       };
     }
     const escalation = await ctx.store.createEscalation({

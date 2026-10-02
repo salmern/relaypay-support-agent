@@ -22,7 +22,9 @@ describe("spokenMoney", () => {
   });
 
   it("handles thousands separators and decimals", () => {
-    expect(spokenMoney("1,250.50", "USD")).toBe("one thousand two hundred and fifty point fifty US dollars");
+    expect(spokenMoney("1,250.50", "USD")).toBe("one thousand two hundred and fifty US dollars and fifty cents");
+    expect(spokenMoney("12.05", "USD")).toBe("twelve US dollars and five cents");
+    expect(spokenMoney("0.01", "EUR")).toBe("zero euros and one cent");
   });
 
   it("keeps the raw amount but expands unknown currency codes", () => {

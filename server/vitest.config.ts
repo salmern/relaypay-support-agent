@@ -5,6 +5,7 @@ export default defineConfig({
     include: ["tests/**/*.test.ts"],
     testTimeout: 60000,
     environment: "node",
+    setupFiles: ["tests/setup.ts"],
     // The orchestrator tests spawn real MCP server subprocesses; run
     // them sequentially in forked workers so stdio pipes are managed
     // cleanly and stores stay deterministic.

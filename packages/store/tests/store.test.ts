@@ -8,6 +8,7 @@ import {
   MockFileStore,
   parseKnowledgeBase,
   retrieveKnowledge,
+  extractAnswer,
   routeFaqQuestion,
 } from "../src/index.js";
 
@@ -132,11 +133,51 @@ describe("retrieval", () => {
   });
 
   it("finds the does-not-support answer for crypto questions", () => {
-    // The KB covers this: RelayPay does not support cryptocurrency payments.
-    const result = retrieveKnowledge(kb, "Do you offer cryptocurrency trading signals?");
+    // The KB covers this: RelayPay does not support cryptocurrency
+    // payments. Stemming/prefix matching links "crypto" to it.
+    const result = retrieveKnowledge(kb, "Do you support crypto payments?");
     expect(result.relevant).toBe(true);
     expect(result.matches[0]!.chunk.title).toMatch(/feature availability|limitations/i);
-    expect(result.matches[0]!.chunk.content).toContain("Cryptocurrency");
+    expect(extractAnswer(result.matches[0]!.chunk.content, "Do you support crypto payments?")).toBe(
+      "RelayPay does not support cryptocurrency payments.",
+    );
+  });
+
+  it("extracts the answering sentence from long sections, not the first lines", () => {
+    const result = retrieveKnowledge(kb, "Do you offer instant payments?");
+    expect(result.relevant).toBe(true);
+    expect(extractAnswer(result.matches[0]!.chunk.content, "Do you offer instant payments?")).toMatch(
+      /does not currently support real-time or instant/i,
+    );
+  });
+
+  it("returns short FAQ answers whole, including a leading No.", () => {
+    const result = retrieveKnowledge(kb, "Can RelayPay guarantee my payout arrives by 9am tomorrow?");
+    expect(extractAnswer(result.matches[0]!.chunk.content, "guarantee")).toMatch(/^No\. Payment timelines/);
+  });
+
+  it("cites only chunks close to the best match", () => {
+    const result = retrieveKnowledge(kb, "What fees does RelayPay charge for international payments?");
+    expect(result.matches.map((m) => m.chunk.id)).toHaveLength(1);
+  });
+
+  it("declines off-topic and single-rare-word queries (regression battery)", () => {
+    for (const query of [
+      "Help",
+      "Tomorrow afternoon.",
+      "What are your opening hours?",
+      "What is the weather in Lagos?",
+      "Do you offer cryptocurrency trading signals?",
+      "Can you hear me?",
+    ]) {
+      expect(retrieveKnowledge(kb, query).relevant, query).toBe(false);
+    }
+  });
+
+  it("answers the voice-garbled fee question from the fee policy", () => {
+    const result = retrieveKnowledge(kb, "What does fee related payment is");
+    expect(result.relevant).toBe(true);
+    expect(result.matches[0]!.chunk.heading).toMatch(/fees/i);
   });
 
   it("marks a truly uncovered topic as not relevant", () => {
@@ -193,5 +234,15 @@ describe("mock store", () => {
     const turns = await store.listTurns("conv-1");
     expect(turns).toHaveLength(1);
     expect(turns[0]!.answer_type).toBe("knowledge");
+  });
+
+  it("never rewrites an existing conversation (started_at / caller id survive later turns)", async () => {
+    const store = new MockFileStore({ filePath: join(tmp, `store-${Math.random().toString(36).slice(2)}.json`), seed });
+    const first = await store.createConversation({ conversation_id: "conv-keep", channel: "text", caller_identifier: "caller-1" });
+    expect(first.final_status).toBe("active");
+    await new Promise((r) => setTimeout(r, 5));
+    const again = await store.createConversation({ conversation_id: "conv-keep", channel: "text", caller_identifier: null });
+    expect(again.started_at).toBe(first.started_at);
+    expect(again.caller_identifier).toBe("caller-1");
   });
 });

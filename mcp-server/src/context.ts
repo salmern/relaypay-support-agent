@@ -6,7 +6,7 @@
  * Audit logging itself must never crash a tool; failures go to stderr.
  *
  * The conversation id is injected per MCP server process via the
- * RELAYPAY_CONVERSATION_ID env var (the orchestrator spawns the server
+ * --conversation-id argument (the orchestrator spawns the server
  * scoped to the active conversation), so tool contracts stay exactly as
  * specified in assets/mcp-tool-requirements.md.
  */

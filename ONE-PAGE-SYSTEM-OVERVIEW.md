@@ -12,13 +12,16 @@ escalations when rules require, and logs everything for review.
 
 1. **Vapi** (browser + dashboard assistant) converts speech ↔ text. Its
    only tool forwards what the customer said to our backend.
-2. The **backend** runs a deterministic **decision engine**: answer,
+2. The **backend** reads what the previous turn was waiting for (from the
+   audit trail), then runs a deterministic **decision engine**: answer,
    clarify, look up, create ticket, escalate, or decline.
 3. For answers, it **retrieves** relevant sections of the approved
    RelayPay knowledge base (logged, with sources).
-4. **Claude (Agent SDK)** phrases the reply from the decision, the
-   retrieved knowledge, and real tool results — or a deterministic
-   responder does, if no API key is configured.
+4. **Claude (Agent SDK)** words the reply from the decision, the
+   retrieved knowledge and real tool results; the required next step (the
+   exact question or offer) is appended verbatim, and a rewording that
+   changes a fact is rejected. Without an API key a deterministic
+   responder words it.
 5. Tool actions run through our custom **MCP server** (six tools:
    customer/transaction/payout lookup, ticket creation, escalation,
    event logging), which writes/reads **Supabase** and audits every call.
@@ -28,12 +31,15 @@ escalations when rules require, and logs everything for review.
 - **Voice:** open the web app → *Start support call* → speak normally.
   Status (listening/speaking), the transcript, and escalation/ticket
   badges are shown live. *End call* closes the conversation record.
-- **Text:** the same agent is reachable in the app's *Text test mode* and
-  via `POST /api/conversations/:id/turns`.
-- **Review:** *Agent activity* in the app (or `GET /api/debug/conversations/:id`)
-  shows the decision, retrieved knowledge, tool calls and their results.
-- **Evidence:** `npm run evaluate` re-runs all Week 6 scenarios and
-  stores pass/fail records.
+- **Text:** the same agent is reachable via *Use text chat instead* in the
+  app, and via `POST /api/conversations` + `/turns` (with the returned
+  conversation token).
+- **Review:** *Agent activity* in the app shows, for the latest turn, the
+  answer type, confidence, responder, retrieved knowledge and the MCP
+  tool-call rows exactly as written to the audit log. Operators use
+  `GET /api/debug/conversations/:id` with the `x-debug-token` header.
+- **Evidence:** `npm run evaluate` re-runs the 11 scenarios (isolated);
+  `npm run evaluate:supabase` stores pass/fail records with a run id.
 
 ## Major components
 
@@ -41,18 +47,20 @@ escalations when rules require, and logs everything for review.
 | --- | --- | --- |
 | Voice interface | Vapi web SDK + assistant | STT/TTS, call state, webhook bridge |
 | Backend | Fastify (Node 20+) | Decision engine, orchestration, webhook, debug API |
-| Agent brain | Claude Agent SDK | Safe phrasing over decided actions |
+| Agent brain | Claude Agent SDK | Safe phrasing over decided actions (read-only lookups only) |
 | Support tools | Custom MCP server (stdio) | The only path to data & actions |
-| Data | Supabase (11 tables, RLS on) | Seed data + all runtime records |
+| Data | Supabase (12 tables, RLS on) | Seed data + all runtime records |
 
 ## Important safety behavior
 
 - **No fabrication:** without relevant approved knowledge the agent
-  declines and offers a callback instead of guessing.
+  declines and offers follow-up instead of guessing; it never answers about
+  a different record than the one asked.
 - **No guarantees:** timelines/outcomes are never promised (e.g. the
   "guarantee by 9am" question is answered with the approved policy).
-- **Privacy:** spoken replies contain customer-safe fields only; emails
-  are masked in audit logs; secrets live in env vars, server-side only.
+- **Privacy:** spoken replies contain customer-safe fields only; requests
+  for personal data are refused; emails are masked in audit logs; secrets
+  live in env vars, server-side only, never on a command line.
 - **Honesty:** tickets/escalations are confirmed only if actually
   created; failures produce explicit error responses.
 - **Escalation discipline:** account restrictions, disputes, refunds,

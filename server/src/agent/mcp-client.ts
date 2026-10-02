@@ -46,25 +46,28 @@ export interface StdioServerConfig {
   type: "stdio";
   command: string;
   args: string[];
-  env: Record<string, string>;
 }
 
-/** MCP server config for the Agent SDK, scoped to one conversation. */
+/**
+ * MCP server config for the Agent SDK, scoped to one conversation.
+ *
+ * SECURITY: the Agent SDK serializes this config (including any `env`)
+ * onto the Claude CLI's command line, where every local user can read it
+ * with `ps`. So NO environment is passed here: the CLI subprocess
+ * inherits this process's environment and hands it to the MCP server,
+ * and the (non-secret) conversation id travels as a CLI argument.
+ */
 export function stdioServerConfig(conversationId: string): { "relaypay-support": StdioServerConfig } {
   return {
     "relaypay-support": {
       type: "stdio",
       command: process.execPath,
-      args: [resolveMcpServerPath()],
-      env: {
-        ...process.env,
-        RELAYPAY_CONVERSATION_ID: conversationId,
-      } as Record<string, string>,
+      args: [resolveMcpServerPath(), "--conversation-id", conversationId],
     },
   };
 }
 
-/** All six MCP tools, in Agent SDK allowedTools naming. */
+/** All six MCP tools, in Agent SDK naming. */
 export const MCP_ALLOWED_TOOLS = [
   "mcp__relaypay-support__lookup_customer",
   "mcp__relaypay-support__lookup_transaction",
@@ -73,6 +76,12 @@ export const MCP_ALLOWED_TOOLS = [
   "mcp__relaypay-support__create_escalation",
   "mcp__relaypay-support__log_conversation_event",
 ];
+
+/** The tools Claude may call itself: read-only lookups only. */
+export const MCP_READ_ONLY_TOOLS = MCP_ALLOWED_TOOLS.filter((t) => /__lookup_/.test(t));
+
+/** Side-effecting tools: only the deterministic orchestrator calls these. */
+export const MCP_WRITE_TOOLS = MCP_ALLOWED_TOOLS.filter((t) => !/__lookup_/.test(t));
 
 export const MCP_SERVER_KEY = "relaypay-support" as const;
 
@@ -83,13 +92,12 @@ export class RelayPayMcpClient {
   ) {}
 
   static async spawn(conversationId: string): Promise<RelayPayMcpClient> {
+    // Spawned directly (not via a CLI), so the environment is passed to
+    // the child process privately — never on a command line.
     const transport = new StdioClientTransport({
       command: process.execPath,
-      args: [resolveMcpServerPath()],
-      env: {
-        ...process.env,
-        RELAYPAY_CONVERSATION_ID: conversationId,
-      } as Record<string, string>,
+      args: [resolveMcpServerPath(), "--conversation-id", conversationId],
+      env: { ...process.env } as Record<string, string>,
     });
     const client = new Client({ name: "relaypay-orchestrator", version: "1.0.0" });
     await client.connect(transport);
