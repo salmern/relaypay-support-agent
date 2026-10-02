@@ -269,15 +269,14 @@ export class SupportOrchestrator {
   async handleTurn(rawInput: TurnInput): Promise<TurnResult> {
     let input = rawInput;
     const turnStartedAt = new Date().toISOString();
-    // Voice transcripts arrive from speech-to-text, which renders spoken
-    // references as words ("TXN-nine thousand and 1"). Normalize them to
-    // canonical IDs before any decision runs, and keep the raw transcript
-    // for the persisted audit trail.
-    if (input.channel === "voice") {
-      const normalized = normalizeVoiceReferences(input.userMessage);
-      if (normalized !== input.userMessage) {
-        input = { ...input, userMessage: normalized, rawTranscript: input.userMessage };
-      }
+    // References arrive in loose shapes: speech-to-text writes words
+    // ("TXN-nine thousand and 1"), and people type without the hyphen
+    // ("txn99999", "TXN 9001"). Normalize them to canonical IDs on BOTH
+    // channels before any decision runs, and keep what the customer
+    // actually said/typed for the persisted audit trail.
+    const normalized = normalizeVoiceReferences(input.userMessage);
+    if (normalized !== input.userMessage) {
+      input = { ...input, userMessage: normalized, rawTranscript: input.userMessage };
     }
 
     await this.store.createConversation({

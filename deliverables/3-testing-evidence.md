@@ -1,6 +1,6 @@
 # Deliverable 3: Testing Evidence Table
 
-Automated suite: `npm test` runs **193 tests** (store 27, server 151, mcp-server 15) against the real orchestrator and real MCP subprocesses. `npm run evaluate` runs 11 scenarios in-process and asserts behaviour and persisted records (**11/11 PASS**, verified with both the deterministic responder and Claude phrasing via `EVAL_RESPONDER=claude`). Every claim below traces to a named test, an evaluation scenario, or a live trace.
+Automated suite: `npm test` runs **196 tests** (store 27, server 154, mcp-server 15) against the real orchestrator and real MCP subprocesses. `npm run evaluate` runs 11 scenarios in-process and asserts behaviour and persisted records (**11/11 PASS**, verified with both the deterministic responder and Claude phrasing via `EVAL_RESPONDER=claude`). Every claim below traces to a named test, an evaluation scenario, or a live trace.
 
 ## Part 1: Scenario tests (Week 6 scenarios 1 to 9)
 
@@ -34,6 +34,6 @@ Automated suite: `npm test` runs **193 tests** (store 27, server 151, mcp-server
 
 ## Regression sweep
 
-- 193/193 automated tests pass (`npm test`, independent of any local `ANTHROPIC_API_KEY`); `npm run evaluate` 11/11 with the deterministic responder and with Claude phrasing; `npm run build`, `npm run typecheck` and `npm run lint` exit 0; `npm run mcp:smoke` passes.
+- 196/196 automated tests pass (`npm test`, independent of any local `ANTHROPIC_API_KEY`); `npm run evaluate` 11/11 with the deterministic responder and with Claude phrasing; `npm run build`, `npm run typecheck` and `npm run lint` exit 0; `npm run mcp:smoke` passes.
 - UI verified in a headless browser against the backend: the activity panel shows `lookup_transaction — success — found=true status=processing … TXN-9001` for the transaction question and `KB-018` for the fee question, the escalation badge appears after the escalation, "New conversation" resets the view, no console errors, and the layout holds at 375 px.
 - Live audio (Vapi STT/TTS) requires a manual call; see TESTING.md for the procedure.

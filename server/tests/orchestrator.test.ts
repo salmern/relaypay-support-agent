@@ -558,13 +558,21 @@ describe("audit: MCP subprocess lifecycle", () => {
 });
 
 describe("audit: never answer about the wrong record", () => {
-  it("asks to repeat an unreadable reference instead of reusing an older one", async () => {
+  it("reads a spaced reference as the payout asked for, never the earlier one", async () => {
     await turn("Check TXN-9003");
     const result = await turn("What is happening with payout PAY 7 0 0 3?");
-    expect(result.answerType).toBe("clarification");
+    expect(result.response).toContain("PAY-7003");
     expect(result.response).not.toContain("PAY-7002");
-    const payoutCalls = persisted().tool_calls.filter((c) => c.conversation_id === conversationId && c.tool_name === "lookup_payout");
-    expect(payoutCalls).toHaveLength(0);
+  });
+
+  it("asks to repeat an unreadable reference instead of reusing an older one", async () => {
+    await turn("Check TXN-9003");
+    const result = await turn("Check transaction TXN nine one blue seven");
+    expect(result.answerType).toBe("clarification");
+    expect(result.response).toMatch(/say the full reference again/i);
+    // No second lookup: the earlier TXN-9003 is NOT silently reused.
+    const lookups = persisted().tool_calls.filter((c) => c.conversation_id === conversationId && c.tool_name === "lookup_transaction");
+    expect(lookups).toHaveLength(1);
   });
 
   it("normalizes spoken 'payout PAY 7 0 0 3' on voice to PAY-7003", async () => {
@@ -755,5 +763,21 @@ describe("audit follow-up: customer links and names", () => {
     const escalation = persisted().escalations.find((e) => e.conversation_id === conversationId)! as unknown as { user_name: string; user_email: string };
     expect(escalation.user_name).toBe("Salman");
     expect(escalation.user_email).toBe("salman@gmail.com");
+  });
+});
+
+describe("typed references without the hyphen", () => {
+  it("looks up 'txn99999' on the text channel and says it was not found", async () => {
+    const result = await turn("txn99999");
+    expect(result.answerType).toBe("lookup");
+    expect(result.response).toMatch(/couldn't find a transaction with reference TXN-99999/);
+    const calls = persisted().tool_calls.filter((c) => c.conversation_id === conversationId && c.tool_name === "lookup_transaction");
+    expect(calls).toHaveLength(1);
+  });
+
+  it("reads 'Can you check transaction TXN 9001' typed with a space", async () => {
+    const result = await turn("Can you check transaction TXN 9001?");
+    expect(result.response).toContain("TXN-9001");
+    expect(result.response).toMatch(/processing/);
   });
 });
