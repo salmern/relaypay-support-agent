@@ -238,6 +238,10 @@ export function callbackBooked(preferredTime: string): Reply {
   };
 }
 
+export function callbackAskDay(partOfDay: string): Reply {
+  return { lead: `Sure, ${partOfDay} works.`, closing: `Which day would you like the ${partOfDay} callback — today, tomorrow, or another day?` };
+}
+
 export function callbackInvalid(): Reply {
   return {
     lead: "Sorry, I couldn't use that time.",

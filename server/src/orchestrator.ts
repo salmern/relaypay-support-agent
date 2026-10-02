@@ -581,6 +581,18 @@ export class SupportOrchestrator {
       rationale: "Customer answered the callback-time question",
     };
     const time = extractPreferredTime(message);
+    // "Afternoon." alone has no day — ask for it, then join the two
+    // answers ("tomorrow" + "afternoon") into one callback time.
+    const heldPart = str(ctx.state.data.callback_part);
+    if (time?.valid && isPartOfDayOnly(time.value) && !heldPart) {
+      return this.reply(input, ctx, newBase(decision), templates.callbackAskDay(time.value), {
+        answerType: "escalation",
+        confidence: 0.9,
+        awaiting: "callback_time",
+        state: { ...ctx.state.data, callback_part: time.value },
+      });
+    }
+    if (time?.valid && heldPart && !PART_OF_DAY.test(time.value)) time.value = `${time.value} ${heldPart}`;
 
     if (time?.valid) {
       const base = newBase(decision);
@@ -1409,7 +1421,7 @@ function latestReferences(userTurns: string[]): { transactionId?: string; payout
 // ==========================================================================
 
 const FAREWELL_PATTERN =
-  /\b(no,? (thank you|thanks)|no thanks?|no goodbye|goodbye|bye( bye)?|that('s| is) all|that will be all|nothing else)\b/i;
+  /\b(no[,.!]?\s*(thank you|thanks)|no thanks?|no goodbye|goodbye|bye( bye)?|that('s| is) all|that will be all|nothing else)\b/i;
 const AFFIRMATIVE_PATTERN =
   /^\s*(y|yes|yeah|yep|yup|sure|ok|okay|please|of course|correct|right|affirmative|go ahead|sounds good|definitely|absolutely|please do|do it|it is|it'?s (correct|right)|that'?s (correct|right)|that is (correct|right))\b/i;
 // A lone "Thank you." / "Thanks." is a closing pleasantry, not a request.
@@ -1604,6 +1616,12 @@ const TIME_TOKEN = new RegExp(
   "gi",
 );
 const TIME_SPAN = new RegExp(TIME_TOKEN.source, "gi");
+const PART_OF_DAY = /\b(?:morning|afternoon|evening|noon|midday|lunchtime)\b/i;
+
+/** "afternoon" / "the morning" — a part of the day with no day or clock time. */
+function isPartOfDayOnly(value: string): boolean {
+  return /^(?:in the |the )?(?:morning|afternoon|evening|noon|midday|lunchtime)$/i.test(value.trim());
+}
 
 /**
  * Finds a preferred callback time ("tomorrow afternoon", "Monday at

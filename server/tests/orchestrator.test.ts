@@ -667,6 +667,20 @@ describe("audit: escalation contact collection", () => {
     expect(escalation.call_booked).toBe(true);
   });
 
+  it("asks which day when the callback time is only 'afternoon', then saves both", async () => {
+    await turn("My account was restricted and nobody is helping me.");
+    await turn("My name is Morgana and my email is morgana at yahoo dot com.");
+    const third = await turn("Afternoon.");
+    expect(third.response).toMatch(/which day/i);
+    const fourth = await turn("Tomorrow.");
+    expect(fourth.response).toMatch(/noted tomorrow afternoon/i);
+    const escalation = persisted().escalations.find((e) => e.conversation_id === conversationId)!;
+    expect(escalation.preferred_time).toBe("tomorrow afternoon");
+    const fifth = await turn("No. Thank you.");
+    expect(fifth.response).toMatch(/goodbye/i);
+    expect(fifth.response).not.toMatch(/anything else/i);
+  });
+
   it("rejects an impossible callback time and asks again", async () => {
     await turn("My account was restricted");
     const second = await turn("Salman salman@example.com callback at 25pm on Blursday");
