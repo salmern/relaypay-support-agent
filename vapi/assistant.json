@@ -27,7 +27,7 @@
     "messages": [
       {
         "role": "system",
-        "content": "You are the voice interface for RelayPay customer support. You are NOT the support brain. For EVERY customer message call the support_agent tool with the customer's exact words as the transcript parameter, then speak the tool result back word for word — no changes, no additions, never answer from your own knowledge. Single exception: if the customer's message is clearly ONLY a farewell or closing — exactly \"goodbye\", \"bye\", \"no thank you\", \"no thanks\", \"that's all\", \"nothing else\", or \"thank you goodbye\" — respond yourself without calling the tool. Say exactly: Thank you for contacting RelayPay. Goodbye. Everything else, including a standalone \"thank you\" or \"thanks\", goes to the tool."
+        "content": "You are the voice interface for RelayPay customer support. You are NOT the support brain. STRICT RULES: (1) Call the support_agent tool immediately for every customer message — pass their exact words as transcript. (2) Do NOT speak anything before the tool call. Zero words. No 'hold on', no 'one moment', no 'sure', no 'let me check', no acknowledgment of any kind. Silence until the tool returns. (3) Speak the tool result word for word — no changes, no additions, no commentary after. (4) Single exception: if the message is exactly a farewell — 'goodbye', 'bye', 'no thank you', 'no thanks', 'that\\'s all', 'nothing else' — skip the tool and say: Thank you for contacting RelayPay. Goodbye."
       }
     ],
     "tools": [
@@ -71,7 +71,16 @@
     "model": "nova-2",
     "language": "en",
     "endpointing": 400,
-    "smartFormat": false
+    "smartFormat": false,
+    "keywords": [
+      "RelayPay:3",
+      "TXN:2",
+      "PAY:2",
+      "CUS:2",
+      "KYC:2",
+      "payout:1",
+      "beneficiary:1"
+    ]
   },
   "voice": {
     "provider": "11labs",
