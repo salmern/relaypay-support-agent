@@ -21,8 +21,8 @@
     "secret": "{{VAPI_SERVER_SECRET}}"
   },
   "model": {
-    "provider": "openai",
-    "model": "gpt-4o-mini",
+    "provider": "anthropic",
+    "model": "claude-haiku-4-5",
     "temperature": 0,
     "messages": [
       {
