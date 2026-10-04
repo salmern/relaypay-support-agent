@@ -66,9 +66,13 @@ function App() {
 
   // Voice: after each final assistant reply, read the call's activity
   // (tool calls, retrieval, escalation) from the backend audit trail.
+  // Only poll after the user has spoken at least once — the backend
+  // creates the conversation row only when Vapi's tool-calls webhook
+  // fires (which happens in response to user speech, not the greeting).
   const finalAssistantCount = transcript.filter((t) => t.role === "assistant" && !t.partial).length;
+  const userHasSpoken = transcript.some((t) => t.role === "user" && !t.partial);
   useEffect(() => {
-    if (!callId || finalAssistantCount === 0) return;
+    if (!callId || finalAssistantCount === 0 || !userHasSpoken) return;
     let cancelled = false;
     const timer = setTimeout(async () => {
       const view = await fetchActivity(API_BASE, callId);
