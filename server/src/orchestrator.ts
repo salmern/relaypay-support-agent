@@ -302,9 +302,11 @@ export class SupportOrchestrator {
     input = pending.input;
 
     // 2. Farewells end the conversation; they are never new requests.
-    if (FAREWELL_PATTERN.test(input.userMessage) ||
-      (previousTurns.length > 0 && BARE_THANKS_PATTERN.test(input.userMessage))) {
+    if (FAREWELL_PATTERN.test(input.userMessage)) {
       return this.closeConversationTurn(input, ctx, "Customer farewell — closing pleasantry", templates.farewell());
+    }
+    if (previousTurns.length > 0 && BARE_THANKS_PATTERN.test(input.userMessage)) {
+      return this.closeConversationTurn(input, ctx, "Customer thank-you — offer anything else", templates.thanksAcknowledge(), "anything_else");
     }
 
     // 3. A new request.
@@ -1137,11 +1139,11 @@ export class SupportOrchestrator {
     });
   }
 
-  private closeConversationTurn(input: TurnInput, ctx: TurnContext, rationale: string, reply: Reply): Promise<TurnResult> {
+  private closeConversationTurn(input: TurnInput, ctx: TurnContext, rationale: string, reply: Reply, awaiting: Awaiting = null): Promise<TurnResult> {
     const decision: Decision = { action: "answer", intent: "knowledge", rationale };
-    // Farewells are a fixed one-line pleasantry — Claude has nothing useful
-    // to add, and the round-trip to the model causes a "1 moment…" pause
-    // in the Vapi assistant before a simple goodbye. Bypass phrasing entirely.
+    // Closings are fixed pleasantries — Claude has nothing useful to add,
+    // and the round-trip to the model causes a "1 moment…" pause in the
+    // Vapi assistant. Bypass phrasing entirely.
     const base = newBase(decision);
     base.claudeNote = "skipped: closing pleasantry does not need rephrasing";
     return this.finishTurn(input, ctx, base, {
@@ -1149,6 +1151,7 @@ export class SupportOrchestrator {
       answerType: "closing",
       confidence: 0.95,
       uncertaintyNote: null,
+      awaiting,
     });
   }
 
@@ -1435,7 +1438,7 @@ const FAREWELL_PATTERN =
 const AFFIRMATIVE_PATTERN =
   /^\s*(y|yes|yeah|yep|yup|sure|ok|okay|please|of course|correct|right|affirmative|go ahead|sounds good|definitely|absolutely|please do|do it|it is|it'?s (correct|right)|that'?s (correct|right)|that is (correct|right))\b/i;
 // A lone "Thank you." / "Thanks." is a closing pleasantry, not a request.
-const BARE_THANKS_PATTERN = /^\s*(thank you|thanks)( so much| very much)?\s*[.!]?\s*$/i;
+const BARE_THANKS_PATTERN = /^\s*((alright|okay|ok|great|perfect|got it|sounds good)[,.]?\s*)?(thank you|thanks)( so much| very much)?\s*[.!]?\s*$/i;
 const BARE_NEGATIVE = /^\s*(no|nope|nah|no,? it'?s fine|not really|not now)\s*[.!]?\s*$/i;
 const CANCEL_PATTERN = /\b(never ?mind|forget (it|that|about it)|cancel (that|it|the request)|don'?t (bother|escalate)|i changed my mind|not anymore)\b/i;
 const NO_REFERENCE_PATTERN = /\b(don'?t|do not|didn'?t) (have|know|remember)\b|\bno (reference|ref|idea)\b|\bnot sure\b/i;

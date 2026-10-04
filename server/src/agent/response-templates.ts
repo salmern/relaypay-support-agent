@@ -292,6 +292,10 @@ export function farewell(): Reply {
   return { lead: "Thank you for contacting RelayPay. Goodbye." };
 }
 
+export function thanksAcknowledge(): Reply {
+  return { lead: "You're welcome.", closing: ANYTHING_ELSE };
+}
+
 export function farewellAfter(lead: string): Reply {
   return { lead: `${lead} Thank you for contacting RelayPay. Goodbye.` };
 }
