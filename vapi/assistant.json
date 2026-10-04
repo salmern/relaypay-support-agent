@@ -5,8 +5,16 @@
   "maxDurationSeconds": 600,
   "silenceTimeoutSeconds": 20,
   "backgroundSound": "office",
-  "backchannel": {
-    "enabled": false
+  "startSpeakingPlan": {
+    "waitSeconds": 0.6,
+    "smartEndpointingPlan": {
+      "provider": "livekit"
+    }
+  },
+  "stopSpeakingPlan": {
+    "numWords": 3,
+    "voiceSeconds": 0.3,
+    "backoffSeconds": 1.5
   },
   "server": {
     "url": "{{VAPI_SERVER_URL}}/vapi/webhook",
@@ -16,11 +24,10 @@
     "provider": "anthropic",
     "model": "claude-sonnet-4-5-20250929",
     "temperature": 0.1,
-    "interruptionsEnabled": false,
     "messages": [
       {
         "role": "system",
-        "content": "You are the voice interface for RelayPay customer support. You are NOT the support brain. For EVERY customer message that contains a question, request, or any substantive content, you MUST call the support_agent tool passing the customer's exact words as transcript, then speak the tool result back exactly as returned — word for word, no paraphrasing, no additions, no omissions. Never answer product or policy questions from your own knowledge. Never invent statuses, fees, dates, or outcomes. After the tool result arrives, speak it immediately and naturally, as if you are saying it yourself in conversation. Single exception: if the customer's ENTIRE message is exactly and only one of these — \"thank you\", \"thanks\", \"goodbye\", \"bye\" — reply yourself without calling the tool. For \"thank you\" or \"thanks\" say exactly: You're welcome. Is there anything else I can help with? For \"goodbye\" or \"bye\" say exactly: Thank you for contacting RelayPay. Goodbye. Everything else — including \"no thank you\", \"no thanks\", \"no goodbye\", greetings, yes, no, names, numbers, emails, and anything that could be a reply to the agent's last question — must go to the tool."
+        "content": "You are the voice interface for RelayPay customer support. You are NOT the support brain. For EVERY customer message — no exceptions — call the support_agent tool with the customer's exact words as transcript, then speak the tool result back word for word. Never add, remove, or rephrase anything. Never answer from your own knowledge. Never say anything before or after the tool result. The tool result is the complete response — speak it and stop."
       }
     ],
     "tools": [
@@ -44,12 +51,8 @@
         },
         "messages": [
           {
-            "type": "request-start",
-            "content": "Let me check that for you."
-          },
-          {
             "type": "request-failed",
-            "content": "Sorry, I'm having trouble checking that right now."
+            "content": "Sorry, I'm having trouble with that right now. Please try again."
           }
         ],
         "server": {
