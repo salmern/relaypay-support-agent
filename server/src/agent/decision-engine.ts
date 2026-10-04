@@ -408,7 +408,11 @@ export function normalizeVoiceReferences(input: string): string {
   // by the spoken PAY prefix would otherwise swallow the prefix as an
   // unparseable tail, leaving no reference at all (which once let an
   // older reference from the conversation be used instead).
-  const text = input.replace(/\bpay\s?out\s+(?=p\s?a\s?y\b(?!-\d))/gi, "");
+  // Similarly "customer c u s 1 0 0 1": strip the noun "customer" before
+  // a spaced-out CUS prefix so the refRegex can match it cleanly.
+  const text = input
+    .replace(/\bpay\s?out\s+(?=p\s?a\s?y\b(?!-\d))/gi, "")
+    .replace(/\bcustomer\s+(?=c\s?u\s?s\b)/gi, "");
   // Fused alphanumerics: STT often merges the prefix with the digits and
   // drops the separator entirely ("txn001", "pay7002"). The word-boundary
   // in the main pattern below cannot match inside those, so rewrite them

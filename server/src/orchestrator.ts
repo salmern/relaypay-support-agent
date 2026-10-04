@@ -1139,7 +1139,17 @@ export class SupportOrchestrator {
 
   private closeConversationTurn(input: TurnInput, ctx: TurnContext, rationale: string, reply: Reply): Promise<TurnResult> {
     const decision: Decision = { action: "answer", intent: "knowledge", rationale };
-    return this.reply(input, ctx, newBase(decision), reply, { answerType: "closing", confidence: 0.95 });
+    // Farewells are a fixed one-line pleasantry — Claude has nothing useful
+    // to add, and the round-trip to the model causes a "1 moment…" pause
+    // in the Vapi assistant before a simple goodbye. Bypass phrasing entirely.
+    const base = newBase(decision);
+    base.claudeNote = "skipped: closing pleasantry does not need rephrasing";
+    return this.finishTurn(input, ctx, base, {
+      response: render(reply),
+      answerType: "closing",
+      confidence: 0.95,
+      uncertaintyNote: null,
+    });
   }
 
   // ======================================================================
