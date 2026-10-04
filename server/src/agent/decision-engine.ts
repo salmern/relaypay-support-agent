@@ -150,6 +150,9 @@ export function classifyIntent(message: string): Intent {
   if (FEES_INTENT.test(message)) return "knowledge";
   if (GENERIC_PAYMENT.test(message)) return "transaction_lookup";
   if (ACCOUNT_INTENT.test(message)) return "account_lookup";
+  // A bare CUS-#### reference is always an account lookup, even without
+  // account-specific phrasing ("check CUS-1001", "CUS-1001 for me").
+  if (/\bCUS-\d+\b/i.test(message)) return "account_lookup";
   if (isGreetingOrPresence(message)) return "greeting";
   if (HELP_ONLY.test(message)) return "general_help";
   return "knowledge";
