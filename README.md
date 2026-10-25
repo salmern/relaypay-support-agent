@@ -1,5 +1,4 @@
-# RelayPay Support Agent — Week 6 Capstone
-
+# RelayPay Support Agent
 A production-style **customer support voice agent** for RelayPay, a fictional
 B2B cross-border payments and invoicing company.
 
