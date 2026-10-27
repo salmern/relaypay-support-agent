@@ -2,7 +2,7 @@
 A production-style **customer support voice agent** for RelayPay, a fictional
 B2B cross-border payments and invoicing company.
 
-Built to the Week 6 specification: **Vapi** for voice, **Claude Agent SDK**
+Built to the specification: **Vapi** for voice, **Claude Agent SDK**
 for the support agent's language, a **custom MCP server** for support
 tools, **Supabase** for data, and a retrieval layer grounded in the
 approved RelayPay knowledge base.
